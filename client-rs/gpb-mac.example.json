@@ -1,0 +1,10 @@
+{
+  "profilePath": "../../profiles/pubg-vn.example.json",
+  "psk": "PASTE-THE-PSK-FROM-THE-VPS-HERE",
+  "defaultRelayId": "relay-1",
+  "relayEndpoint": "203.0.113.10:51820",
+  "defaultGameId": "pubg",
+  "clientIdPath": "gpb-client-id",
+  "adapterName": "Game Ping Booster",
+  "routeWithoutGame": true
+}

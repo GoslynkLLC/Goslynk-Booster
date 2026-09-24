@@ -1,0 +1,68 @@
+[Unit]
+Description=Game Ping Booster relay
+Documentation=https://github.com/gamepingbooster
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Where this relay posts its status snapshot, as GPB_REPORT_URL. Optional - the leading '-' means
+# a missing file is not an error, and a relay with no file reports nothing.
+#
+# An EnvironmentFile rather than a flag on ExecStart below, for two reasons. The URL is the one
+# piece of relay configuration that is not public: it names the licence server's ingest endpoint,
+# and this unit ships in the open-source repository. And systemd cannot pass an empty variable as
+# "no flag" - `-report-url ${VAR}` with VAR unset hands relayd a flag with no value, which then
+# eats the next argument.
+EnvironmentFile=-/etc/gpb/relayd.env
+
+# The auth flag on the ExecStart line below is a placeholder, substituted by install.sh into a
+# temporary copy of this file the same way the max-clients and min-tier ones are. It becomes
+# either -psk-file or -licence-key, because relayd serves exactly ONE authentication mode and
+# refuses to start if it is given both or neither.
+#
+# min-tier comes from RELAY_<NAME>_MIN_TIER in gpb.conf and is the lowest plan tier this relay
+# admits; 0 admits everyone. It has to agree with the relay's minTier on the licence server, which
+# decides a different question - who is TOLD this address. relayd reports the value it enforces
+# with every status snapshot so the licence server can say when the two have drifted.
+#
+# A placeholder rather than the flag itself, and that is the whole point: this line used to read
+# `-psk-file /etc/gpb/psk`, so a relay hand-started in the other mode was put back into PSK mode
+# by the next deploy - the unit came from this template, and the template knew only one mode.
+#
+# Do not write either placeholder's literal name in a comment here. install.sh substitutes every
+# occurrence in the file, comments included, so a comment naming one would be rewritten into
+# nonsense in the unit that actually gets installed.
+ExecStart=/usr/local/bin/relayd \
+  -listen :51820 \
+  -tun gpb0 \
+  -subnet 10.77.0.0/24 \
+  -mtu 1400 \
+  __AUTH_FLAG__ \
+  -rate-limit 256 \
+  -max-clients __MAX_CLIENTS__ \
+  -min-tier __MIN_TIER__ \
+  -log-level info
+
+# relayd needs CAP_NET_ADMIN to open the TUN device and to run `ip addr/link`.
+# Running as root keeps it simple; everything else is locked down.
+#
+# The directives below deliberately stick to what systemd 219 (CentOS/RHEL 7) understands.
+# ProtectSystem=strict, ReadOnlyPaths= and DevicePolicy= all need systemd >= 232 and will
+# make the service fail on older distros - do not add them unless the VPS runs a recent systemd.
+User=root
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+# The relay is latency sensitive - give it priority over other background work.
+Nice=-10
+LimitNOFILE=65535
+
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

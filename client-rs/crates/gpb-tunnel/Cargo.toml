@@ -1,0 +1,11 @@
+[package]
+name = "gpb-tunnel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "UDP tunnel client: handshake, pumps, keepalive"
+
+[dependencies]
+gpb-protocol.workspace = true
+gpb-net.workspace = true
+thiserror.workspace = true

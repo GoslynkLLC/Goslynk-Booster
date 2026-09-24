@@ -1,0 +1,289 @@
+:root {
+  color-scheme: dark;
+  --bg: #0e0e0e;
+  --card: #1a1a1a;
+  --line: #2a2a2a;
+  --text: #e8e8e8;
+  --muted: #8a8a8a;
+  --accent: #3d9a6a;
+  --accent-hover: #48b07a;
+  --danger: #c44;
+  --danger-hover: #d55;
+  --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: radial-gradient(120% 80% at 50% -20%, #1c2420 0%, var(--bg) 55%);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+.app {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 28px 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100%;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.brand.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.tag {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.tag strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+input {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: #111;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+input:focus {
+  outline: 1px solid #3d6a52;
+  border-color: #3d6a52;
+}
+
+input:disabled {
+  opacity: 0.55;
+}
+
+.btn {
+  appearance: none;
+  border: 0;
+  border-radius: 12px;
+  height: 46px;
+  font-size: 0.95rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.btn.primary {
+  background: var(--accent);
+  color: #04140c;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn.primary.connected {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn.primary.connected:hover:not(:disabled) {
+  background: var(--danger-hover);
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.btn.ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: #3a3a3a;
+}
+
+.btn.sm {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 0.8rem;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.link {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.hint.muted {
+  text-align: center;
+}
+
+.error {
+  margin: 0;
+  color: #f0a0a0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.game-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.game-card {
+  appearance: none;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.game-card:hover {
+  border-color: #3a3a3a;
+}
+
+.game-card.selected {
+  border-color: var(--accent);
+  background: #152019;
+}
+
+.game-name {
+  font-weight: 650;
+  font-size: 0.95rem;
+}
+
+.game-sub {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.status-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.9rem;
+}
+
+.label {
+  color: var(--muted);
+}
+
+.value {
+  font-weight: 600;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+
+.value.muted {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.value.on {
+  color: var(--accent);
+}
+
+.toggle {
+  height: 48px;
+}
+
+.config {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 14px 14px;
+}
+
+.config summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 4px 0 10px;
+}
+
+.config label {
+  margin-bottom: 10px;
+}

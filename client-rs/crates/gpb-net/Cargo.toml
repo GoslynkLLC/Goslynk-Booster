@@ -1,0 +1,15 @@
+[package]
+name = "gpb-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "TUN device and route table abstractions"
+
+[dependencies]
+thiserror.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+wintun = "0.5"

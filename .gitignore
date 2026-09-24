@@ -1,0 +1,38 @@
+# Rust client
+client-rs/target/
+client-rs/gpb-app/node_modules/
+client-rs/gpb-app/dist/
+client-rs/gpb-mac.json
+client-rs/gpb-win.json
+client-rs/gpb-client-id
+
+# Go relay
+relay/relayd
+relay/relayd.arm64
+relay/gpb-relay.tar.gz
+relay/dist/
+
+# Secrets / local config
+gpb.conf
+/config.json
+**/psk
+*.pem
+*.key
+*.pub
+token.hex
+
+# Captures
+*.pcapng
+*.pcap
+
+# Profiles with real endpoints (keep *.example.json)
+profiles/*.local.json
+profiles/pubg-vn.json
+profiles/cs2-vn.json
+profiles/valorant-vn.json
+profiles/lol-vn.json
+profiles/*.bak*
+
+.DS_Store
+.vs/
+.reset-backup/

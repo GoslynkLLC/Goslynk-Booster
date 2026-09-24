@@ -1,0 +1,21 @@
+[package]
+name = "gpb-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "macOS GPB tunnel daemon (PSK)"
+
+[[bin]]
+name = "gpb-daemon"
+path = "src/main.rs"
+
+[dependencies]
+gpb-protocol.workspace = true
+gpb-profile.workspace = true
+gpb-net.workspace = true
+gpb-tunnel.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+ctrlc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
