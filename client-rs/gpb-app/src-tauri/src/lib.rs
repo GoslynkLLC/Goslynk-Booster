@@ -1,6 +1,6 @@
-//! Tauri backend: auth (local) + connect / disconnect / status (PSK tunnel).
+//! Tauri backend: game profiles + connect / disconnect / status (PSK tunnel).
+//! Accounts live on the Goslynk API; the webview talks to it directly.
 
-mod auth;
 mod profiles;
 
 use gpb_net::{default_gateway, open_tun, PlatformRouteTable, RouteTable, TunDevice};
@@ -259,8 +259,6 @@ pub fn run() {
             disconnect,
             get_status,
             default_relay,
-            auth::login,
-            auth::register,
             profiles::list_games,
         ])
         .run(tauri::generate_context!())

@@ -24,8 +24,8 @@ Copyright (c) 2026 Goslynk LLC. All rights reserved.
    including injunctions, removal of infringing copies, compensation for damages,
    statutory damages, and recovery of legal costs where the law allows.
 
-5. Third-party components. Parts of the Software are derived from open-source software
-   (see THIRD_PARTY_NOTICES.md). Those parts remain under their original licenses, and
+5. Third-party components. Parts of the Software are derived from open-source software.
+   Those parts remain under their original licenses, and
    nothing in this license limits the rights those licenses grant for those parts.
 
 6. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
@@ -60,8 +60,8 @@ Bản quyền (c) 2026 Goslynk LLC. Bảo lưu mọi quyền.
    hành vi, gỡ bỏ bản sao vi phạm, bồi thường thiệt hại, phạt vi phạm theo luật định và
    thu hồi chi phí pháp lý khi pháp luật cho phép.
 
-5. Thành phần bên thứ ba. Một số phần của Phần mềm có nguồn gốc từ phần mềm mã nguồn mở
-   (xem THIRD_PARTY_NOTICES.md). Các phần đó vẫn theo giấy phép gốc của chúng; giấy phép
+5. Thành phần bên thứ ba. Một số phần của Phần mềm có nguồn gốc từ phần mềm mã nguồn mở.
+   Các phần đó vẫn theo giấy phép gốc của chúng; giấy phép
    này không hạn chế quyền mà các giấy phép đó cấp cho các phần đó.
 
 6. Không bảo đảm. Phần mềm được cung cấp "nguyên trạng", không kèm bất kỳ bảo đảm nào.

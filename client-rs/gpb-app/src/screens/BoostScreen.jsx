@@ -1,12 +1,21 @@
 import { useEffect, useState } from "react";
 import { apiConnect, apiDisconnect, apiGetStatus, errMsg } from "../api.js";
 
+const RELAY_SOURCE = {
+  override: "relay thủ công",
+  server: "relay máy chủ",
+  build: "relay mặc định",
+  none: "chưa có relay",
+};
+
 export default function BoostScreen({
   game,
   regionIds,
   onRegionsChange,
   relay,
-  onRelayChange,
+  canEditRelay,
+  relayOverride,
+  onRelayOverrideChange,
   onBack,
 }) {
   const [status, setStatus] = useState({ connected: false });
@@ -39,8 +48,9 @@ export default function BoostScreen({
         await apiDisconnect();
         setStatus({ connected: false });
       } else {
-        if (!relay.endpoint?.trim()) throw new Error("Nhập endpoint relay.");
-        if (!relay.psk) throw new Error("Nhập PSK.");
+        if (relay.source === "none") {
+          throw new Error("Máy chủ chưa cấu hình relay. Liên hệ admin Goslynk.");
+        }
         if (routedCount === 0) throw new Error("Chọn ít nhất một khu vực có dải IP.");
         const result = await apiConnect({
           psk: relay.psk,
@@ -164,30 +174,36 @@ export default function BoostScreen({
       </button>
       {error ? <p className="error">{error}</p> : null}
 
-      <details className="config" open={!connected}>
-        <summary>Relay (PSK)</summary>
-        <label>
-          Endpoint
-          <input
-            value={relay.endpoint}
-            onChange={(e) => onRelayChange({ ...relay, endpoint: e.target.value })}
-            placeholder="203.0.113.10:51820"
-            autoComplete="off"
-            disabled={connected || busy}
-          />
-        </label>
-        <label>
-          PSK
-          <input
-            type="password"
-            value={relay.psk}
-            onChange={(e) => onRelayChange({ ...relay, psk: e.target.value })}
-            placeholder="≥ 16 ký tự"
-            autoComplete="off"
-            disabled={connected || busy}
-          />
-        </label>
-      </details>
+      {canEditRelay ? (
+        <details className="config">
+          <summary>
+            Relay thủ công (developer)
+            <span className="muted"> · đang dùng {RELAY_SOURCE[relay.source]}</span>
+          </summary>
+          <p className="hint">Để trống để dùng relay do admin cấu hình trên máy chủ.</p>
+          <label>
+            Endpoint
+            <input
+              value={relayOverride.endpoint}
+              onChange={(e) => onRelayOverrideChange({ ...relayOverride, endpoint: e.target.value })}
+              placeholder={relay.endpoint || "203.0.113.10:51820"}
+              autoComplete="off"
+              disabled={connected || busy}
+            />
+          </label>
+          <label>
+            PSK
+            <input
+              type="password"
+              value={relayOverride.psk}
+              onChange={(e) => onRelayOverrideChange({ ...relayOverride, psk: e.target.value })}
+              placeholder="≥ 16 ký tự"
+              autoComplete="off"
+              disabled={connected || busy}
+            />
+          </label>
+        </details>
+      ) : null}
     </section>
   );
 }

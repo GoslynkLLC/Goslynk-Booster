@@ -8,7 +8,7 @@ with a **Tauri + React** UI.
 ```
 client-rs/     Rust crates + Tauri app (macOS / Windows)
 relay/         Go relayd for Linux VPS
-backend/       Accounts API (Node.js) + admin panel
+backend/       Accounts API (Node.js + MySQL)
 profiles/      Game IP ranges (JSON), compiled into the app
 testdata/      Protocol golden vectors
 docs/          Protocol & architecture
@@ -45,6 +45,11 @@ npm install
 npm run tauri:build
 sudo "../target/release/bundle/macos/Goslynk Booster.app/Contents/MacOS/gpb-app"
 ```
+
+Players sign in with a Goslynk account; the app gets the relay endpoint and PSK from the API
+after login. Accounts with the `admin` role get a **Quản trị** screen in the app (developer mode,
+roles, locks, relay, history). To point a dev build at a local API:
+`VITE_API_BASE=http://127.0.0.1:8787/api npm run dev`.
 
 GitHub Actions builds both installers on every push to `main` (workflow **Build apps**); download
 them from the run's artifacts, or from the release when a `v*` tag is pushed.
@@ -116,5 +121,4 @@ cd relay && make test
 
 ## License
 
-Proprietary, © Goslynk LLC. See [LICENSE](LICENSE). Third-party code and its licenses are
-listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Proprietary, © Goslynk LLC. See [LICENSE](LICENSE).

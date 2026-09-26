@@ -34,8 +34,7 @@
     "longDescription": "Goslynk Booster routes game traffic through a nearby relay to lower ping.",
     "licenseFile": "../../../LICENSE",
     "resources": {
-      "../../../LICENSE": "LICENSE.txt",
-      "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+      "../../../LICENSE": "LICENSE.txt"
     },
     "icon": [
       "icons/32x32.png",

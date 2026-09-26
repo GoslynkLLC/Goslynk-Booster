@@ -1,5 +1,3 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import express from "express";
 import { config } from "./config.js";
 import { one, all, run, pool } from "./db.js";
@@ -30,7 +28,6 @@ import {
   audit,
 } from "./lib.js";
 
-const ADMIN_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../admin");
 const USERNAME_RE = /^[A-Za-z0-9_.]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ENDPOINT_RE = /^[A-Za-z0-9.-]+:\d{1,5}$/;
@@ -375,21 +372,7 @@ export function createApp() {
   });
 
   app.use("/api", api);
-
-  // ---------------------------------------------------------------- admin panel
-  app.use(
-    "/admin",
-    (req, res, next) => {
-      res.set(
-        "Content-Security-Policy",
-        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'",
-      );
-      res.set("X-Frame-Options", "DENY");
-      next();
-    },
-    express.static(ADMIN_DIR, { index: "index.html" }),
-  );
-  app.get("/", (req, res) => res.redirect("/admin/"));
+  app.use((req, res) => res.status(404).json({ ok: false, error: "Không tìm thấy.", code: "not_found" }));
 
   return app;
 }

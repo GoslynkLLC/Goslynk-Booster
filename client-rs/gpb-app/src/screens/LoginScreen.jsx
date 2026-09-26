@@ -2,8 +2,8 @@ import { useState } from "react";
 import { apiLogin, errMsg } from "../api.js";
 import logo from "../assets/goslynk-mark.png";
 
-export default function LoginScreen({ onSuccess, onGoRegister }) {
-  const [username, setUsername] = useState("");
+export default function LoginScreen({ notice, onSuccess, onGoRegister }) {
+  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -13,8 +13,7 @@ export default function LoginScreen({ onSuccess, onGoRegister }) {
     setError("");
     setBusy(true);
     try {
-      const user = await apiLogin(username.trim(), password);
-      onSuccess(user);
+      onSuccess(await apiLogin(login.trim(), password));
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -29,16 +28,11 @@ export default function LoginScreen({ onSuccess, onGoRegister }) {
         <h1>Goslynk Booster</h1>
         <p className="tag">Giảm ping · Đăng nhập</p>
       </header>
+      {notice && !error ? <p className="notice warn">{notice}</p> : null}
       <form className="form" onSubmit={onSubmit}>
         <label>
-          Tên đăng nhập
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            minLength={3}
-            autoComplete="username"
-          />
+          Tên đăng nhập hoặc email
+          <input value={login} onChange={(e) => setLogin(e.target.value)} required autoComplete="username" />
         </label>
         <label>
           Mật khẩu
@@ -47,7 +41,6 @@ export default function LoginScreen({ onSuccess, onGoRegister }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            minLength={6}
             autoComplete="current-password"
           />
         </label>

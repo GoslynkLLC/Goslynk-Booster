@@ -2,9 +2,10 @@ import { useState } from "react";
 import { apiRegister, errMsg } from "../api.js";
 import logo from "../assets/goslynk-mark.png";
 
-export default function RegisterScreen({ onSuccess, onGoLogin }) {
+export default function RegisterScreen({ onSuccess, onBlocked, onGoLogin }) {
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
   const [busy, setBusy] = useState(false);
@@ -19,8 +20,14 @@ export default function RegisterScreen({ onSuccess, onGoLogin }) {
     }
     setBusy(true);
     try {
-      const user = await apiRegister(username.trim(), password, displayName.trim());
-      onSuccess(user);
+      const data = await apiRegister({
+        username: username.trim(),
+        email: email.trim(),
+        password,
+        displayName: displayName.trim(),
+      });
+      if (data.blocked) onBlocked(`Đã tạo tài khoản. ${data.blocked.message}`);
+      else onSuccess(data);
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -38,11 +45,7 @@ export default function RegisterScreen({ onSuccess, onGoLogin }) {
       <form className="form" onSubmit={onSubmit}>
         <label>
           Tên hiển thị
-          <input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Tuỳ chọn"
-          />
+          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Tuỳ chọn" maxLength={64} />
         </label>
         <label>
           Tên đăng nhập
@@ -50,9 +53,14 @@ export default function RegisterScreen({ onSuccess, onGoLogin }) {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
-            minLength={3}
+            pattern="[A-Za-z0-9_.]{3,32}"
+            title="3-32 ký tự: chữ, số, dấu chấm, gạch dưới"
             autoComplete="username"
           />
+        </label>
+        <label>
+          Email
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
         </label>
         <label>
           Mật khẩu
@@ -61,7 +69,7 @@ export default function RegisterScreen({ onSuccess, onGoLogin }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            minLength={6}
+            minLength={8}
             autoComplete="new-password"
           />
         </label>
@@ -72,7 +80,7 @@ export default function RegisterScreen({ onSuccess, onGoLogin }) {
             value={password2}
             onChange={(e) => setPassword2(e.target.value)}
             required
-            minLength={6}
+            minLength={8}
             autoComplete="new-password"
           />
         </label>

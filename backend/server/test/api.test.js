@@ -224,16 +224,15 @@ test("logout ends the session", async () => {
   assert.equal((await call("/api/auth/me", { token: r.data.token })).status, 401);
 });
 
-test("CORS for the app webview only; admin panel served", async () => {
+test("CORS for the app webview only", async () => {
   const pre = await call("/api/auth/login", { method: "OPTIONS", headers: { Origin: "tauri://localhost" } });
   assert.equal(pre.status, 204);
   assert.equal(pre.headers.get("access-control-allow-origin"), "tauri://localhost");
+  const win = await call("/api/status", { headers: { Origin: "http://tauri.localhost" } });
+  assert.equal(win.headers.get("access-control-allow-origin"), "http://tauri.localhost");
   const evil = await call("/api/status", { headers: { Origin: "https://evil.example" } });
   assert.equal(evil.headers.get("access-control-allow-origin"), null);
-  const page = await call("/admin/");
-  assert.equal(page.status, 200);
-  assert.match(page.data, /<html/i);
-  assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+  assert.equal((await call("/admin/")).status, 404);
 });
 
 test("repeated failures are rate limited", async () => {
