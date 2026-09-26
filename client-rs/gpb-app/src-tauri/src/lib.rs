@@ -1,17 +1,22 @@
 //! Tauri backend: auth (local) + connect / disconnect / status (PSK tunnel).
 
 mod auth;
+mod profiles;
 
 use gpb_net::{default_gateway, open_tun, PlatformRouteTable, RouteTable, TunDevice};
-use gpb_profile::{load_or_create_client_id, GameProfile};
+use gpb_profile::load_or_create_client_id;
 use gpb_protocol::ipv4_to_string;
-use gpb_tunnel::{handshake, start_pumps, TunnelSession};
+use gpb_tunnel::{clock, handshake, start_pumps, TunnelError, TunnelSession};
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
+
+/// `{"endpoint": "...", "psk": "..."}` from `src-tauri/relay.local.json` at build time, or `{}`.
+const BUILD_RELAY_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/default_relay.json"));
+
+const ADAPTER_NAME: &str = "Goslynk Booster";
 
 struct LiveTunnel {
     session: TunnelSession,
@@ -35,13 +40,29 @@ impl Default for AppState {
 pub struct ConnectArgs {
     pub psk: String,
     pub endpoint: String,
-    pub profile_path: String,
-    pub game_id: Option<String>,
-    pub client_id_path: Option<String>,
-    pub adapter_name: Option<String>,
-    pub route_without_game: Option<bool>,
+    pub game_id: String,
+    /// Regions of the game to route; `None` means every region.
+    pub region_ids: Option<Vec<String>>,
     pub timeout_secs: Option<u64>,
     pub keepalive_secs: Option<u64>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayDefaults {
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub psk: String,
+}
+
+#[tauri::command]
+fn default_relay() -> RelayDefaults {
+    let mut d: RelayDefaults = serde_json::from_str(BUILD_RELAY_JSON).unwrap_or_default();
+    if d.endpoint.trim().is_empty() {
+        d.endpoint = profiles::builtin_relay_endpoint().unwrap_or_default();
+    }
+    d
 }
 
 #[derive(Debug, Serialize)]
@@ -52,6 +73,7 @@ pub struct ConnectResult {
     pub mtu: u16,
     pub handshake_rtt_ms: f64,
     pub tun_name: String,
+    pub routes: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -110,7 +132,11 @@ fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn connect(state: State<'_, AppState>, args: ConnectArgs) -> Result<ConnectResult, String> {
+fn connect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: ConnectArgs,
+) -> Result<ConnectResult, String> {
     {
         let guard = state.live.lock().map_err(|e| e.to_string())?;
         if guard.is_some() {
@@ -127,35 +153,35 @@ fn connect(state: State<'_, AppState>, args: ConnectArgs) -> Result<ConnectResul
         .parse()
         .map_err(|e| format!("Endpoint không hợp lệ '{}': {e}", args.endpoint))?;
 
-    let profile =
-        GameProfile::load(&args.profile_path).map_err(|e| format!("Không đọc được profile: {e}"))?;
+    let (profile, _) = profiles::load(&app, &args.game_id)?;
     let cidrs = profile
-        .game_cidrs(args.game_id.as_deref())
+        .region_cidrs(Some(&args.game_id), args.region_ids.as_deref())
         .map_err(|e| e.to_string())?;
+    if cidrs.is_empty() {
+        return Err(
+            "Khu vực đã chọn chưa có dải IP server nào - bật lên cũng không giảm được ping.".into(),
+        );
+    }
 
-    let client_id_path = PathBuf::from(
-        args.client_id_path
-            .unwrap_or_else(|| "gpb-client-id".into()),
-    );
-    let client_id =
-        load_or_create_client_id(&client_id_path).map_err(|e| format!("Client id: {e}"))?;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("App data dir: {e}"))?;
+    let client_id = load_or_create_client_id(&data_dir.join("client-id"))
+        .map_err(|e| format!("Client id: {e}"))?;
 
     let timeout = Duration::from_secs(args.timeout_secs.unwrap_or(8));
     let keepalive = Duration::from_secs(args.keepalive_secs.unwrap_or(15));
-    let adapter_name = args
-        .adapter_name
-        .unwrap_or_else(|| "Game Ping Booster".into());
-    let route_without_game = args.route_without_game.unwrap_or(true);
 
     let (socket, hs, stamp) = handshake(endpoint, args.psk.as_bytes(), client_id, timeout)
-        .map_err(|e| format!("Handshake thất bại: {e}"))?;
+        .map_err(explain_handshake_error)?;
 
     let client_ip = Ipv4Addr::from(hs.client_ip);
     let relay_ip = Ipv4Addr::from(hs.relay_ip);
 
-    let tun = open_tun(&adapter_name, client_ip, relay_ip, hs.mtu).map_err(|e| {
+    let tun = open_tun(ADAPTER_NAME, client_ip, relay_ip, hs.mtu).map_err(|e| {
         format!(
-            "Không mở được TUN: {e}. macOS: chạy bằng sudo. Windows: Admin/LocalSystem + wintun.dll."
+            "Không mở được TUN: {e}. macOS: chạy bằng sudo. Windows: chạy bằng quyền Administrator."
         )
     })?;
     let tun_name = tun.name().to_string();
@@ -177,10 +203,14 @@ fn connect(state: State<'_, AppState>, args: ConnectArgs) -> Result<ConnectResul
         .pin_host(relay_host, phys_gw, &phys_iface)
         .map_err(|e| format!("Gắn route relay: {e}"))?;
 
-    if route_without_game {
-        for cidr in &cidrs {
-            let _ = routes.add_cidr(cidr, relay_ip, &tun_name);
+    let mut routed = 0usize;
+    for cidr in &cidrs {
+        if routes.add_cidr(cidr, relay_ip, &tun_name).is_ok() {
+            routed += 1;
         }
+    }
+    if routed == 0 {
+        return Err("Không thêm được route nào qua tunnel.".into());
     }
 
     let result = ConnectResult {
@@ -189,6 +219,7 @@ fn connect(state: State<'_, AppState>, args: ConnectArgs) -> Result<ConnectResul
         mtu: hs.mtu,
         handshake_rtt_ms: stamp.handshake_rtt_us as f64 / 1000.0,
         tun_name: tun_name.clone(),
+        routes: routed,
     };
 
     let session = start_pumps(socket, hs, stamp.handshake_rtt_us, tun, keepalive)
@@ -203,6 +234,22 @@ fn connect(state: State<'_, AppState>, args: ConnectArgs) -> Result<ConnectResul
     Ok(result)
 }
 
+fn explain_handshake_error(e: TunnelError) -> String {
+    if !matches!(e, TunnelError::HandshakeTimeout) {
+        return format!("Handshake thất bại: {e}");
+    }
+    match clock::clock_offset_secs(Duration::from_secs(2)) {
+        Some(off) if off.abs() > clock::HANDSHAKE_SKEW_SECS / 2.0 => format!(
+            "Đồng hồ máy đang {} {:.0} giây nên relay từ chối kết nối. \
+             Bật \"Đặt giờ tự động\" (Set time automatically) rồi thử lại.",
+            if off > 0.0 { "nhanh" } else { "chậm" },
+            off.abs()
+        ),
+        _ => "Relay không phản hồi. Kiểm tra endpoint, PSK, và cổng UDP trên firewall của VPS."
+            .into(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -211,9 +258,10 @@ pub fn run() {
             connect,
             disconnect,
             get_status,
+            default_relay,
             auth::login,
             auth::register,
-            auth::list_games,
+            profiles::list_games,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

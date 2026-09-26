@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use gpb_net::{default_gateway, open_tun, PlatformRouteTable, RouteTable, TunDevice};
 use gpb_profile::{load_or_create_client_id, DaemonConfig, GameProfile};
 use gpb_protocol::ipv4_to_string;
-use gpb_tunnel::{handshake, start_pumps};
+use gpb_tunnel::{clock, handshake, start_pumps, TunnelError};
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,7 +16,7 @@ use std::time::Duration;
 #[derive(Parser, Debug)]
 #[command(
     name = "gpb-daemon",
-    about = "Game Ping Booster tunnel daemon (PSK) — macOS / Windows"
+    about = "Goslynk Booster tunnel daemon (PSK) — macOS / Windows"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -64,7 +64,11 @@ fn cmd_connect(config_path: PathBuf, keepalive_secs: u64, timeout_secs: u64) -> 
     let client_id_path = resolve_path(&config_path, &cfg.client_id_path);
     let client_id = load_or_create_client_id(&client_id_path)?;
     let endpoint = cfg.resolve_endpoint(&profile)?;
-    let cidrs = profile.game_cidrs(cfg.default_game_id.as_deref())?;
+    let cidrs =
+        profile.region_cidrs(cfg.default_game_id.as_deref(), cfg.region_ids.as_deref())?;
+    if cidrs.is_empty() {
+        bail!("the chosen game/regions have no CIDRs - nothing would go through the relay");
+    }
 
     println!("relay      {endpoint}");
     println!(
@@ -73,13 +77,25 @@ fn cmd_connect(config_path: PathBuf, keepalive_secs: u64, timeout_secs: u64) -> 
     );
     println!("cidrs      {} prefixes", cidrs.len());
 
-    let (socket, hs, stamp) = handshake(
+    let (socket, hs, stamp) = match handshake(
         endpoint,
         cfg.psk.as_bytes(),
         client_id,
         Duration::from_secs(timeout_secs),
-    )
-    .context("handshake")?;
+    ) {
+        Ok(v) => v,
+        Err(TunnelError::HandshakeTimeout) => {
+            match clock::clock_offset_secs(Duration::from_secs(2)) {
+                Some(off) if off.abs() > clock::HANDSHAKE_SKEW_SECS / 2.0 => bail!(
+                    "handshake timed out: this clock is {off:+.0} s off real time and the relay \
+                     accepts +/-{:.0} s - turn on automatic time sync and retry",
+                    clock::HANDSHAKE_SKEW_SECS
+                ),
+                _ => bail!("handshake timed out: check endpoint, PSK and the VPS firewall (UDP)"),
+            }
+        }
+        Err(e) => return Err(e).context("handshake"),
+    };
 
     let client_ip = Ipv4Addr::from(hs.client_ip);
     let relay_ip = Ipv4Addr::from(hs.relay_ip);

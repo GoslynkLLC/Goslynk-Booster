@@ -1,21 +1,69 @@
-MIT License
+Goslynk Booster - Proprietary License
 
-Copyright (c) Goslynk LLC
+Copyright (c) 2026 Goslynk LLC. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Ownership. This software, including its source code, compiled binaries, installers,
+   documentation, graphics, and the "Goslynk" and "Goslynk Booster" names and logos
+   (together, the "Software"), is the property of Goslynk LLC and is protected by
+   copyright and trademark law and by international treaties.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+2. No license granted. Except as stated in section 5, no permission is granted to copy,
+   reproduce, modify, merge, publish, distribute, sublicense, sell, rent, host as a
+   service, reverse engineer, decompile, or create derivative works of the Software, in
+   whole or in part, without the prior written permission of Goslynk LLC. Being able to
+   view this source code, for example in a public repository, does not grant any such
+   permission.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. Use of official builds. Installing and running official builds published by
+   Goslynk LLC is permitted for personal use only, subject to the Goslynk terms of
+   service and to a valid Goslynk account.
+
+4. Enforcement. Any copying, distribution, or other use not permitted by this license
+   infringes the rights of Goslynk LLC and automatically terminates any permission to use
+   the Software. Goslynk LLC will pursue every remedy available under applicable law,
+   including injunctions, removal of infringing copies, compensation for damages,
+   statutory damages, and recovery of legal costs where the law allows.
+
+5. Third-party components. Parts of the Software are derived from open-source software
+   (see THIRD_PARTY_NOTICES.md). Those parts remain under their original licenses, and
+   nothing in this license limits the rights those licenses grant for those parts.
+
+6. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED. IN NO EVENT SHALL GOSLYNK LLC BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+Permission requests: contact Goslynk LLC.
+
+--------------------------------------------------------------------------------
+
+Giấy phép độc quyền - Goslynk Booster
+
+Bản quyền (c) 2026 Goslynk LLC. Bảo lưu mọi quyền.
+
+1. Quyền sở hữu. Phần mềm này, gồm mã nguồn, bản biên dịch, bộ cài, tài liệu, hình ảnh,
+   cùng tên và logo "Goslynk", "Goslynk Booster" (gọi chung là "Phần mềm"), thuộc sở hữu
+   của Goslynk LLC và được bảo hộ bởi luật bản quyền, luật nhãn hiệu và các điều ước
+   quốc tế.
+
+2. Không cấp quyền. Ngoài trường hợp ở mục 5, không ai được sao chép, tái tạo, chỉnh sửa,
+   phát hành, phân phối, cấp phép lại, bán, cho thuê, cung cấp dưới dạng dịch vụ, dịch
+   ngược hay tạo sản phẩm phái sinh từ Phần mềm, toàn bộ hay một phần, khi chưa có sự
+   đồng ý bằng văn bản của Goslynk LLC. Việc xem được mã nguồn, ví dụ trên kho công khai,
+   không có nghĩa là được cấp các quyền trên.
+
+3. Sử dụng bản chính thức. Được cài đặt và chạy các bản do Goslynk LLC phát hành cho mục
+   đích cá nhân, theo điều khoản dịch vụ của Goslynk và với tài khoản Goslynk hợp lệ.
+
+4. Xử lý vi phạm. Mọi hành vi sao chép, phân phối hoặc sử dụng ngoài phạm vi giấy phép này
+   là xâm phạm quyền của Goslynk LLC và tự động chấm dứt mọi quyền sử dụng Phần mềm.
+   Goslynk LLC sẽ áp dụng mọi biện pháp mà pháp luật cho phép, bao gồm yêu cầu chấm dứt
+   hành vi, gỡ bỏ bản sao vi phạm, bồi thường thiệt hại, phạt vi phạm theo luật định và
+   thu hồi chi phí pháp lý khi pháp luật cho phép.
+
+5. Thành phần bên thứ ba. Một số phần của Phần mềm có nguồn gốc từ phần mềm mã nguồn mở
+   (xem THIRD_PARTY_NOTICES.md). Các phần đó vẫn theo giấy phép gốc của chúng; giấy phép
+   này không hạn chế quyền mà các giấy phép đó cấp cho các phần đó.
+
+6. Không bảo đảm. Phần mềm được cung cấp "nguyên trạng", không kèm bất kỳ bảo đảm nào.
+   Goslynk LLC không chịu trách nhiệm cho bất kỳ khiếu nại, thiệt hại nào phát sinh từ
+   việc sử dụng Phần mềm.

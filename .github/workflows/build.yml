@@ -1,0 +1,88 @@
+name: Build apps
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            args: ""
+            bundle: client-rs/target/release/bundle
+            artifact: Goslynk-Booster-windows-x64
+          - name: macOS universal
+            os: macos-latest
+            args: --target universal-apple-darwin
+            bundle: client-rs/target/universal-apple-darwin/release/bundle
+            artifact: Goslynk-Booster-macos-universal
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client-rs/gpb-app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client-rs -> target
+          key: ${{ matrix.artifact }}
+
+      # relay.local.json is gitignored (it holds the PSK); the secret pre-fills the relay in the app.
+      - name: Default relay from secret
+        shell: bash
+        env:
+          RELAY_LOCAL_JSON: ${{ secrets.RELAY_LOCAL_JSON }}
+        run: |
+          if [ -n "$RELAY_LOCAL_JSON" ]; then
+            printf '%s' "$RELAY_LOCAL_JSON" > client-rs/gpb-app/src-tauri/relay.local.json
+            echo "Default relay embedded."
+          else
+            echo "::warning::Secret RELAY_LOCAL_JSON not set; players must enter the relay by hand."
+          fi
+
+      - name: Install frontend dependencies
+        working-directory: client-rs/gpb-app
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: client-rs/gpb-app
+          args: ${{ matrix.args }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && format('Goslynk Booster {0}', github.ref_name) || '' }}
+          releaseDraft: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          path: |
+            ${{ matrix.bundle }}/nsis/*.exe
+            ${{ matrix.bundle }}/msi/*.msi
+            ${{ matrix.bundle }}/dmg/*.dmg

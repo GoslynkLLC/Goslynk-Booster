@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedUtc": "2026-01-01T00:00:00Z",
-  "note": "Example profile. It shows the shape and is enough to start the client, but the ranges below are only illustrative - generate a real one for your region with tools/profile-builder/Build-PubgProfile.ps1 after capturing a few sessions. Relay endpoints use RFC 5737 documentation addresses; replace them with your own.",
+  "note": "Example profile. The ranges below are only illustrative - replace them with ranges captured from real PUBG matches.",
   "games": [
     {
       "id": "pubg",
@@ -16,7 +16,7 @@
           "id": "asia-sg",
           "name": "Southeast Asia (Singapore)",
           "source": "azure:southeastasia",
-          "note": "Illustrative only. Two published Azure southeastasia blocks, not a curated list.",
+          "note": "Chỉ là mẫu: hai dải Azure southeastasia công khai, chưa phải danh sách server PUBG đầy đủ.",
           "cidrs": [
             "20.24.48.0/20",
             "52.139.208.0/20"
@@ -26,14 +26,14 @@
           "id": "asia-jp",
           "name": "Japan (Tokyo)",
           "source": "unverified",
-          "note": "Empty. Only fill this in after capturing matches while connected to the Japan region.",
+          "note": "Trống. Chỉ điền sau khi bắt gói tin trận đấu ở server Nhật.",
           "cidrs": []
         },
         {
           "id": "asia-kr",
           "name": "Korea (Seoul)",
           "source": "unverified",
-          "note": "Empty. Only fill this in after capturing matches while connected to the Korea region.",
+          "note": "Trống. Chỉ điền sau khi bắt gói tin trận đấu ở server Hàn.",
           "cidrs": []
         }
       ]
@@ -41,10 +41,10 @@
   ],
   "relays": [
     {
-      "id": "relay-1",
-      "name": "Your relay",
+      "id": "sg-1",
+      "name": "Goslynk SG-1",
       "location": "Singapore",
-      "endpoint": "203.0.113.10:51820"
+      "endpoint": "74.81.54.113:51820"
     }
   ]
 }

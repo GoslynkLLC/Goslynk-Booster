@@ -35,7 +35,7 @@ pub fn open_tun(
                 if delay_ms > 0 {
                     std::thread::sleep(Duration::from_millis(delay_ms));
                 }
-                match wintun::Adapter::create(&wintun, name_hint, "GamePingBooster", None) {
+                match wintun::Adapter::create(&wintun, name_hint, "GoslynkBooster", None) {
                     Ok(a) => {
                         created = Some(a);
                         break;
@@ -281,15 +281,16 @@ fn find_wintun_dll() -> Result<PathBuf, NetError> {
             "GPB_WINTUN_DLL={path:?} not found"
         )));
     }
+    // Beside the exe first: that is where the installer puts it, and this process runs
+    // elevated, so a DLL picked up from an arbitrary working directory comes last.
     let candidates = [
-        PathBuf::from("wintun.dll"),
         std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|d| d.join("wintun.dll")))
             .unwrap_or_else(|| PathBuf::from("wintun.dll")),
-        PathBuf::from("client/native/wintun/wintun.dll"),
-        PathBuf::from("../client/native/wintun/wintun.dll"),
-        PathBuf::from("../../client/native/wintun/wintun.dll"),
+        PathBuf::from("wintun/wintun.dll"),
+        PathBuf::from("gpb-app/src-tauri/wintun/wintun.dll"),
+        PathBuf::from("wintun.dll"),
     ];
     for c in candidates {
         if c.is_file() {
@@ -297,8 +298,8 @@ fn find_wintun_dll() -> Result<PathBuf, NetError> {
         }
     }
     Err(NetError::Msg(
-        "wintun.dll not found. Download amd64 build from https://www.wintun.net/ \
-         and place it next to gpb-daemon.exe (or set GPB_WINTUN_DLL)."
+        "wintun.dll not found. Run gpb-app/scripts/fetch-wintun.ps1, or download the amd64 \
+         build from https://www.wintun.net/ and place it next to the exe (or set GPB_WINTUN_DLL)."
             .into(),
     ))
 }

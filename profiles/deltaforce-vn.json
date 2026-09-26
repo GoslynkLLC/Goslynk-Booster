@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-09-26T00:00:00Z",
+  "note": "Delta Force. From an upstream GamePingBooster capture (2026-09-23, Hanoi, Viettel): UDP ~75 packets/s to Tencent Cloud Hong Kong, 43.132.208.47 and 150.109.68.141, each widened to its /20. Upstream measured direct 28-30 ms from that line; the Singapore relay is ~38 ms from these servers on its own, so it only helps a line whose route to Hong Kong is bad. Landmark (never routed): 43.132.224.20.",
+  "games": [
+    {
+      "id": "deltaforce",
+      "name": "Delta Force",
+      "processNames": [
+        "DeltaForceClient-Win64-Shipping.exe"
+      ],
+      "lobbyAddresses": [],
+      "regions": [
+        {
+          "id": "hk",
+          "name": "Hong Kong (Tencent)",
+          "source": "as132203",
+          "defaultOn": false,
+          "note": "Relay Singapore tới HK mất ~38 ms, còn đi thẳng từ VN thường ~30 ms. Chỉ bật khi đường mạng của bạn tới HK quá tệ.",
+          "cidrs": [
+            "43.132.208.0/20",
+            "150.109.64.0/20"
+          ],
+          "landmarks": ["43.132.224.20"]
+        }
+      ]
+    }
+  ],
+  "relays": [
+    {
+      "id": "sg-1",
+      "name": "Goslynk SG-1",
+      "location": "Singapore",
+      "endpoint": "74.81.54.113:51820"
+    }
+  ]
+}

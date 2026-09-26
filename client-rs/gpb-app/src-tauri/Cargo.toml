@@ -1,10 +1,10 @@
 [package]
 name = "gpb-app"
 version = "0.1.0"
-description = "Game Ping Booster — Tauri UI (PSK)"
-authors = ["Game Ping Booster"]
+description = "Goslynk Booster desktop app"
+authors = ["Goslynk LLC"]
 edition = "2021"
-license = "MIT"
+license-file = "../../../LICENSE"
 
 [lib]
 name = "gpb_app_lib"
@@ -12,6 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+serde_json = "1"
 
 [dependencies]
 tauri = { version = "2", features = [] }

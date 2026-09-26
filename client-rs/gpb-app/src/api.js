@@ -24,6 +24,10 @@ export function apiListGames() {
   return invoke("list_games");
 }
 
+export function apiDefaultRelay() {
+  return invoke("default_relay");
+}
+
 export function apiConnect(args) {
   return invoke("connect", { args });
 }

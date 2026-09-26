@@ -2,7 +2,7 @@
 name = "gpb-daemon"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 description = "macOS GPB tunnel daemon (PSK)"
 
 [[bin]]

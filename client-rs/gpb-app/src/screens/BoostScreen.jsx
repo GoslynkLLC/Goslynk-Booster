@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { apiConnect, apiDisconnect, apiGetStatus, errMsg } from "../api.js";
 
-export default function BoostScreen({ game, relay, onRelayChange, onBack }) {
+export default function BoostScreen({
+  game,
+  regionIds,
+  onRegionsChange,
+  relay,
+  onRelayChange,
+  onBack,
+}) {
   const [status, setStatus] = useState({ connected: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -34,12 +41,12 @@ export default function BoostScreen({ game, relay, onRelayChange, onBack }) {
       } else {
         if (!relay.endpoint?.trim()) throw new Error("Nhập endpoint relay.");
         if (!relay.psk) throw new Error("Nhập PSK.");
+        if (routedCount === 0) throw new Error("Chọn ít nhất một khu vực có dải IP.");
         const result = await apiConnect({
           psk: relay.psk,
           endpoint: relay.endpoint.trim(),
-          profilePath: game.profilePath,
           gameId: game.id,
-          routeWithoutGame: true,
+          regionIds,
         });
         setStatus({
           connected: true,
@@ -62,6 +69,16 @@ export default function BoostScreen({ game, relay, onRelayChange, onBack }) {
   }
 
   const connected = !!status.connected;
+  const regions = game.regions || [];
+  const routedCount = regions
+    .filter((r) => regionIds.includes(r.id))
+    .reduce((n, r) => n + r.cidrCount, 0);
+
+  function toggleRegion(id) {
+    onRegionsChange(
+      regionIds.includes(id) ? regionIds.filter((x) => x !== id) : [...regionIds, id],
+    );
+  }
 
   return (
     <section className="screen">
@@ -108,11 +125,40 @@ export default function BoostScreen({ game, relay, onRelayChange, onBack }) {
         </div>
       </section>
 
+      <section className="config regions">
+        <p className="section-title">
+          Khu vực server
+          <span className="muted"> · {routedCount} dải IP</span>
+        </p>
+        {regions.map((r) => (
+          <label key={r.id} className={`region${r.cidrCount === 0 ? " empty" : ""}`}>
+            <input
+              type="checkbox"
+              checked={regionIds.includes(r.id)}
+              onChange={() => toggleRegion(r.id)}
+              disabled={connected || busy || r.cidrCount === 0}
+            />
+            <span className="region-text">
+              <span className="region-name">
+                {r.name}
+                <span className="muted">
+                  {r.cidrCount > 0 ? ` · ${r.cidrCount}` : " · chưa có IP"}
+                </span>
+              </span>
+              {r.note ? <span className="region-note">{r.note}</span> : null}
+            </span>
+          </label>
+        ))}
+        {game.customProfile ? (
+          <p className="hint">Đang dùng profile tùy chỉnh trong thư mục dữ liệu app.</p>
+        ) : null}
+      </section>
+
       <button
         type="button"
         className={`btn primary toggle${connected ? " connected" : ""}`}
         onClick={onToggle}
-        disabled={busy}
+        disabled={busy || (!connected && routedCount === 0)}
       >
         {busy ? "…" : connected ? "Ngắt kết nối" : "Kết nối"}
       </button>

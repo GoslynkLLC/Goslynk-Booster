@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiListGames, errMsg } from "./api.js";
+import { apiDefaultRelay, apiListGames, errMsg } from "./api.js";
 import LoginScreen from "./screens/LoginScreen.jsx";
 import RegisterScreen from "./screens/RegisterScreen.jsx";
 import HomeScreen from "./screens/HomeScreen.jsx";
@@ -7,6 +7,20 @@ import BoostScreen from "./screens/BoostScreen.jsx";
 
 const SESSION_KEY = "gpb-session-v1";
 const RELAY_KEY = "gpb-relay-v1";
+const REGIONS_KEY = "gpb-regions-v2";
+
+function loadRegions() {
+  try {
+    return JSON.parse(localStorage.getItem(REGIONS_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+/** Regions the profile marks as helped by its relays; the rest stay off until ticked. */
+function defaultRegionIds(game) {
+  return (game?.regions || []).filter((r) => r.cidrCount > 0 && r.defaultOn).map((r) => r.id);
+}
 
 function loadSession() {
   try {
@@ -39,6 +53,7 @@ export default function App() {
   const [games, setGames] = useState([]);
   const [selectedGame, setSelectedGame] = useState(null);
   const [relay, setRelay] = useState(loadRelay);
+  const [regions, setRegions] = useState(loadRegions);
   const [bootError, setBootError] = useState("");
 
   useEffect(() => {
@@ -53,11 +68,19 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
-        const list = await apiListGames();
+        const [list, defaults] = await Promise.all([apiListGames(), apiDefaultRelay()]);
         if (cancelled) return;
         setGames(list);
         const def = list.find((g) => g.isDefault) || list[0] || null;
         setSelectedGame((prev) => prev || def);
+        setRelay((prev) => {
+          const next = {
+            endpoint: prev.endpoint?.trim() ? prev.endpoint : defaults.endpoint || "",
+            psk: prev.psk ? prev.psk : defaults.psk || "",
+          };
+          localStorage.setItem(RELAY_KEY, JSON.stringify(next));
+          return next;
+        });
       } catch (e) {
         if (!cancelled) setBootError(errMsg(e));
       }
@@ -82,6 +105,14 @@ export default function App() {
   const onRelayChange = useCallback((next) => {
     setRelay(next);
     localStorage.setItem(RELAY_KEY, JSON.stringify(next));
+  }, []);
+
+  const onRegionsChange = useCallback((gameId, ids) => {
+    setRegions((prev) => {
+      const next = { ...prev, [gameId]: ids };
+      localStorage.setItem(REGIONS_KEY, JSON.stringify(next));
+      return next;
+    });
   }, []);
 
   return (
@@ -116,6 +147,10 @@ export default function App() {
       {screen === "boost" && selectedGame && (
         <BoostScreen
           game={selectedGame}
+          regionIds={(regions[selectedGame.id] ?? defaultRegionIds(selectedGame)).filter((id) =>
+            selectedGame.regions.some((r) => r.id === id),
+          )}
+          onRegionsChange={(ids) => onRegionsChange(selectedGame.id, ids)}
           relay={relay}
           onRelayChange={onRelayChange}
           onBack={() => setScreen("home")}

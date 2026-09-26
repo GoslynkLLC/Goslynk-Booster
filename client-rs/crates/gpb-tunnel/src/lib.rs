@@ -1,5 +1,7 @@
 //! UDP tunnel client: handshake, dedicated pump threads, keepalive.
 
+pub mod clock;
+
 use gpb_net::TunDevice;
 use gpb_protocol::{
     self as proto, build_disconnect, build_handshake_req, build_ping, try_parse_handshake_resp,

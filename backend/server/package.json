@@ -1,0 +1,22 @@
+{
+  "name": "goslynk-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Goslynk Booster accounts API: login, register, roles, developer mode, admin panel.",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "migrate": "node src/cli.js migrate",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "express": "^5.1.0",
+    "mysql2": "^3.14.1"
+  },
+  "license": "UNLICENSED"
+}

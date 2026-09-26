@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-09-26T00:00:00Z",
+  "note": "Naraka: Bladepoint, AS region. From upstream GamePingBooster captures (2026-09-25/26, about six matches): UDP 28xxx at ~100 packets/s to GCP Tokyo, GCP Singapore and one Zenlayer server in Ho Chi Minh City. Measured from the Singapore relay: GCP Singapore ~2.5 ms, GCP Tokyo ~79 ms.",
+  "games": [
+    {
+      "id": "naraka",
+      "name": "Naraka: Bladepoint",
+      "processNames": [
+        "NarakaBladepoint.exe"
+      ],
+      "lobbyAddresses": [],
+      "regions": [
+        {
+          "id": "asia-sg",
+          "name": "Singapore (GCP)",
+          "source": "as396982",
+          "note": "Relay Singapore cách server khoảng 2,5 ms.",
+          "cidrs": [
+            "34.126.128.0/20"
+          ]
+        },
+        {
+          "id": "asia-jp",
+          "name": "Tokyo (GCP)",
+          "source": "as396982",
+          "defaultOn": false,
+          "note": "Relay Singapore tới Tokyo mất ~79 ms - đi thẳng thường nhanh hơn. Chỉ bật khi đường mạng của bạn tới Nhật quá tệ.",
+          "cidrs": [
+            "34.146.128.0/20",
+            "35.200.48.0/20"
+          ]
+        },
+        {
+          "id": "hcm",
+          "name": "TP.HCM (Zenlayer)",
+          "source": "capture:upstream-2026-09-25",
+          "defaultOn": false,
+          "note": "Server nằm ở Việt Nam - đi qua relay Singapore sẽ tăng ping.",
+          "cidrs": [
+            "216.133.158.10/32"
+          ]
+        }
+      ]
+    }
+  ],
+  "relays": [
+    {
+      "id": "sg-1",
+      "name": "Goslynk SG-1",
+      "location": "Singapore",
+      "endpoint": "74.81.54.113:51820"
+    }
+  ]
+}

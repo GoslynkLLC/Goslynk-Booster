@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { apiRegister, errMsg } from "../api.js";
+import logo from "../assets/goslynk-mark.png";
 
 export default function RegisterScreen({ onSuccess, onGoLogin }) {
   const [displayName, setDisplayName] = useState("");
@@ -30,8 +31,9 @@ export default function RegisterScreen({ onSuccess, onGoLogin }) {
   return (
     <section className="screen">
       <header className="brand">
+        <img className="brand-logo" src={logo} alt="" />
         <h1>Tạo tài khoản</h1>
-        <p className="tag">Đăng ký · lưu trên máy (MVP)</p>
+        <p className="tag">Goslynk Booster · Đăng ký</p>
       </header>
       <form className="form" onSubmit={onSubmit}>
         <label>

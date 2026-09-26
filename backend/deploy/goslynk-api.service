@@ -1,0 +1,30 @@
+[Unit]
+Description=Goslynk Booster accounts API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gsbapi
+Group=gsbapi
+WorkingDirectory=/opt/goslynk-api/server
+EnvironmentFile=/etc/goslynk-api/env
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

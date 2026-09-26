@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Game Ping Booster",
+  "productName": "Goslynk Booster",
   "version": "0.1.0",
-  "identifier": "com.gamepingbooster.app",
+  "identifier": "com.goslynk.booster",
   "build": {
     "beforeDevCommand": "npm run vite",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Game Ping Booster",
+        "title": "Goslynk Booster",
         "width": 420,
         "height": 640,
         "minWidth": 380,
@@ -27,6 +27,16 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Goslynk LLC",
+    "copyright": "Copyright (c) 2026 Goslynk LLC. All rights reserved.",
+    "category": "Utility",
+    "shortDescription": "Goslynk Booster",
+    "longDescription": "Goslynk Booster routes game traffic through a nearby relay to lower ping.",
+    "licenseFile": "../../../LICENSE",
+    "resources": {
+      "../../../LICENSE": "LICENSE.txt",
+      "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

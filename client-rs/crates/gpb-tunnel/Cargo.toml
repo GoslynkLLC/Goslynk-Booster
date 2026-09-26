@@ -2,7 +2,7 @@
 name = "gpb-tunnel"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 description = "UDP tunnel client: handshake, pumps, keepalive"
 
 [dependencies]

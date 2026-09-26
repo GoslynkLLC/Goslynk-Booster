@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-09-26T00:00:00Z",
+  "note": "League of Legends, Vietnamese accounts. From upstream GamePingBooster captures (2026-09-18 and 2026-09-22, Hanoi, six sessions): every match went to 151.106.247.7 on UDP 7331, about 54 packets/s. 151.106.247.0/24 is announced by AS6507 exactly, so only that /24 is routed. The server answers no ICMP or TCP, so there is no landmark - compare ping in game with the tunnel on and off.",
+  "games": [
+    {
+      "id": "lol",
+      "name": "League of Legends",
+      "processNames": [
+        "League of Legends.exe"
+      ],
+      "lobbyAddresses": [],
+      "regions": [
+        {
+          "id": "vn",
+          "name": "Việt Nam",
+          "source": "capture:upstream-2026-09-22",
+          "note": "Server trận đấu 151.106.247.7 (UDP 7331) bắt được từ Hà Nội. Server không trả lời ping - hãy so ping trong game khi bật/tắt.",
+          "cidrs": [
+            "151.106.247.0/24"
+          ]
+        }
+      ]
+    }
+  ],
+  "relays": [
+    {
+      "id": "sg-1",
+      "name": "Goslynk SG-1",
+      "location": "Singapore",
+      "endpoint": "74.81.54.113:51820"
+    }
+  ]
+}

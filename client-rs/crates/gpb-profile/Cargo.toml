@@ -2,7 +2,7 @@
 name = "gpb-profile"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 description = "Game profile and daemon config loading"
 
 [dependencies]

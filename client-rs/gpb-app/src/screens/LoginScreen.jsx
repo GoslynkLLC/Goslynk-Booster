@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { apiLogin, errMsg } from "../api.js";
+import logo from "../assets/goslynk-mark.png";
 
 export default function LoginScreen({ onSuccess, onGoRegister }) {
   const [username, setUsername] = useState("");
@@ -24,7 +25,8 @@ export default function LoginScreen({ onSuccess, onGoRegister }) {
   return (
     <section className="screen">
       <header className="brand">
-        <h1>Game Ping Booster</h1>
+        <img className="brand-logo" src={logo} alt="" />
+        <h1>Goslynk Booster</h1>
         <p className="tag">Giảm ping · Đăng nhập</p>
       </header>
       <form className="form" onSubmit={onSubmit}>

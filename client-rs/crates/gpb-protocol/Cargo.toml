@@ -2,7 +2,7 @@
 name = "gpb-protocol"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 description = "GPB tunnel wire protocol v3 (PSK)"
 
 [dependencies]

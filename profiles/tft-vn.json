@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-09-26T00:00:00Z",
+  "note": "Teamfight Tactics. Not captured yet: the range is the one upstream GamePingBooster keeps for TFT beside LoL (151.106.247.0/24) and VALORANT (151.106.248.0/28), never overlapping either. Capture a match before relying on it.",
+  "games": [
+    {
+      "id": "tft",
+      "name": "Teamfight Tactics",
+      "processNames": [
+        "League of Legends.exe",
+        "TFTClient-Win64-Shipping.exe"
+      ],
+      "lobbyAddresses": [],
+      "regions": [
+        {
+          "id": "vn",
+          "name": "Việt Nam",
+          "source": "upstream",
+          "note": "Chưa bắt gói tin xác nhận.",
+          "cidrs": [
+            "151.106.248.16/28"
+          ]
+        }
+      ]
+    }
+  ],
+  "relays": [
+    {
+      "id": "sg-1",
+      "name": "Goslynk SG-1",
+      "location": "Singapore",
+      "endpoint": "74.81.54.113:51820"
+    }
+  ]
+}

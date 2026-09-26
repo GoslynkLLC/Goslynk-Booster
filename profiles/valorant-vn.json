@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-09-26T00:00:00Z",
+  "note": "VALORANT Asia Pacific. Riot Direct ranges as upstream GamePingBooster keeps them (151.106.248.0/28, 43.229.65.0/24 - never overlapping LoL or TFT) plus the AWS Global Accelerator anycast addresses community captures put in front of the Singapore shard. Capture a match before relying on it.",
+  "games": [
+    {
+      "id": "valorant",
+      "name": "VALORANT",
+      "processNames": ["VALORANT-Win64-Shipping.exe"],
+      "lobbyAddresses": [],
+      "regions": [
+        {
+          "id": "ap-sg",
+          "name": "Asia Pacific (Singapore)",
+          "source": "as6507+aws-ga",
+          "note": "Riot Direct + AWS Global Accelerator. Chưa bắt gói tin xác nhận.",
+          "cidrs": [
+            "151.106.248.0/28",
+            "43.229.65.0/24",
+            "13.248.193.101/32",
+            "75.2.69.178/32",
+            "76.223.1.250/32",
+            "99.83.157.116/32"
+          ],
+          "landmarks": []
+        }
+      ]
+    }
+  ],
+  "relays": [
+    {
+      "id": "sg-1",
+      "name": "Goslynk SG-1",
+      "location": "Singapore",
+      "endpoint": "74.81.54.113:51820"
+    }
+  ]
+}

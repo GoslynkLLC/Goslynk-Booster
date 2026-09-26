@@ -49,6 +49,13 @@ body,
   letter-spacing: -0.02em;
 }
 
+.brand-logo {
+  display: block;
+  width: 96px;
+  height: auto;
+  margin: 4px 0 12px;
+}
+
 .brand.row {
   display: flex;
   justify-content: space-between;
@@ -286,4 +293,56 @@ input:disabled {
 
 .config label {
   margin-bottom: 10px;
+}
+
+.section-title {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.regions label.region {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.regions label.region.empty {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.regions input[type="checkbox"] {
+  appearance: auto;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.region-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.region-name {
+  font-weight: 600;
+}
+
+.region-note {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
 }

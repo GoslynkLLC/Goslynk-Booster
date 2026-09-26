@@ -5,6 +5,8 @@ client-rs/gpb-app/dist/
 client-rs/gpb-mac.json
 client-rs/gpb-win.json
 client-rs/gpb-client-id
+client-rs/gpb-app/src-tauri/relay.local.json
+client-rs/gpb-app/src-tauri/wintun/
 
 # Go relay
 relay/relayd
@@ -25,13 +27,13 @@ token.hex
 *.pcapng
 *.pcap
 
-# Profiles with real endpoints (keep *.example.json)
+# Local profile experiments
 profiles/*.local.json
-profiles/pubg-vn.json
-profiles/cs2-vn.json
-profiles/valorant-vn.json
-profiles/lol-vn.json
 profiles/*.bak*
+
+# Backend
+backend/server/node_modules/
+backend/server/.env
 
 .DS_Store
 .vs/

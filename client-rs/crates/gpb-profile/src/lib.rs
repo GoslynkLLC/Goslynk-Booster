@@ -40,6 +40,12 @@ pub struct RegionEntry {
     pub id: String,
     pub name: String,
     #[serde(default)]
+    pub note: Option<String>,
+    /// False for a region the listed relays make slower (a server far from them), so a UI
+    /// leaves it unticked until the player asks for it.
+    #[serde(rename = "defaultOn", default = "default_true")]
+    pub default_on: bool,
+    #[serde(default)]
     pub cidrs: Vec<String>,
 }
 
@@ -55,25 +61,58 @@ pub struct RelayEntry {
 impl GameProfile {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ProfileError> {
         let raw = fs::read_to_string(path)?;
-        Ok(serde_json::from_str(&raw)?)
+        Self::from_json(&raw)
     }
 
-    /// All CIDRs across every region of the named game (or first game if `game_id` is None).
-    pub fn game_cidrs(&self, game_id: Option<&str>) -> Result<Vec<String>, ProfileError> {
-        let game = match game_id {
+    pub fn from_json(raw: &str) -> Result<Self, ProfileError> {
+        Ok(serde_json::from_str(raw.trim_start_matches('\u{feff}'))?)
+    }
+
+    /// The named game, or the first one if `game_id` is None.
+    pub fn game(&self, game_id: Option<&str>) -> Result<&GameEntry, ProfileError> {
+        match game_id {
             Some(id) => self
                 .games
                 .iter()
                 .find(|g| g.id == id)
-                .ok_or_else(|| ProfileError::Msg(format!("game id '{id}' not in profile")))?,
+                .ok_or_else(|| ProfileError::Msg(format!("game id '{id}' not in profile"))),
             None => self
                 .games
                 .first()
-                .ok_or_else(|| ProfileError::Msg("profile has no games".into()))?,
-        };
+                .ok_or_else(|| ProfileError::Msg("profile has no games".into())),
+        }
+    }
+
+    /// All CIDRs across every region of the named game (or first game if `game_id` is None).
+    pub fn game_cidrs(&self, game_id: Option<&str>) -> Result<Vec<String>, ProfileError> {
+        self.region_cidrs(game_id, None)
+    }
+
+    /// CIDRs of the chosen regions only; `None` means every region.
+    pub fn region_cidrs(
+        &self,
+        game_id: Option<&str>,
+        region_ids: Option<&[String]>,
+    ) -> Result<Vec<String>, ProfileError> {
+        let game = self.game(game_id)?;
+        if let Some(ids) = region_ids {
+            if let Some(bad) = ids.iter().find(|id| !game.regions.iter().any(|r| &r.id == *id)) {
+                return Err(ProfileError::Msg(format!(
+                    "region '{bad}' not in game '{}'",
+                    game.id
+                )));
+            }
+        }
         let mut out = Vec::new();
         for region in &game.regions {
-            out.extend(region.cidrs.iter().cloned());
+            if region_ids.is_some_and(|ids| !ids.contains(&region.id)) {
+                continue;
+            }
+            for cidr in &region.cidrs {
+                if !out.contains(cidr) {
+                    out.push(cidr.clone());
+                }
+            }
         }
         Ok(out)
     }
@@ -97,7 +136,7 @@ impl GameProfile {
     }
 }
 
-/// Daemon config — shape close to `client/config.example.json`.
+/// Daemon config — shape close to `gpb-mac.json / gpb-win.json`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DaemonConfig {
@@ -111,6 +150,9 @@ pub struct DaemonConfig {
     pub relay_endpoint: Option<String>,
     #[serde(default)]
     pub default_game_id: Option<String>,
+    /// Regions of that game to route; omitted means every region.
+    #[serde(default)]
+    pub region_ids: Option<Vec<String>>,
     /// Path to an 8-byte (or hex/u64 text) client id file. Created with a random id if missing.
     #[serde(default = "default_client_id_path")]
     pub client_id_path: PathBuf,
@@ -126,7 +168,7 @@ fn default_client_id_path() -> PathBuf {
 }
 
 fn default_adapter_name() -> String {
-    "Game Ping Booster".into()
+    "Goslynk Booster".into()
 }
 
 fn default_true() -> bool {
@@ -206,12 +248,47 @@ mod tests {
     #[test]
     fn parse_example_profile() {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../profiles/pubg-vn.example.json");
+            .join("../../../profiles/pubg-vn.json");
         let p = GameProfile::load(&path).expect("load example");
         assert!(!p.games.is_empty());
         let cidrs = p.game_cidrs(Some("pubg")).unwrap();
         assert!(cidrs.iter().any(|c| c.contains('/')));
         let ep = p.relay_endpoint(None).unwrap();
         assert_eq!(ep.port(), 51820);
+    }
+
+    #[test]
+    fn every_example_profile_parses_and_routes_something() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../profiles");
+        for (file, game) in [
+            ("lol-vn.json", "lol"),
+            ("tft-vn.json", "tft"),
+            ("pubg-vn.json", "pubg"),
+            ("valorant-vn.json", "valorant"),
+            ("cs2-vn.json", "cs2"),
+            ("naraka-vn.json", "naraka"),
+            ("deltaforce-vn.json", "deltaforce"),
+        ] {
+            let p = GameProfile::load(dir.join(file)).expect(file);
+            let cidrs = p.game_cidrs(Some(game)).unwrap();
+            assert!(!cidrs.is_empty(), "{file} routes nothing");
+            assert!(p.relay_endpoint(None).is_ok(), "{file} has no relay");
+        }
+    }
+
+    #[test]
+    fn region_filter() {
+        let p = GameProfile::from_json(
+            r#"{"games":[{"id":"g","name":"G","regions":[
+                {"id":"a","name":"A","cidrs":["1.0.0.0/24","2.0.0.0/24"]},
+                {"id":"b","name":"B","cidrs":["2.0.0.0/24","3.0.0.0/24"]}]}],
+               "relays":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(p.game_cidrs(None).unwrap().len(), 3);
+        assert!(p.games[0].regions.iter().all(|r| r.default_on));
+        let only_b = p.region_cidrs(Some("g"), Some(&["b".into()])).unwrap();
+        assert_eq!(only_b, vec!["2.0.0.0/24", "3.0.0.0/24"]);
+        assert!(p.region_cidrs(Some("g"), Some(&["zz".into()])).is_err());
     }
 }
