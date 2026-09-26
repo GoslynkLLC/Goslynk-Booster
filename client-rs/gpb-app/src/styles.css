@@ -272,6 +272,31 @@ input:disabled {
   color: var(--accent);
 }
 
+.status-row.sub {
+  font-size: 0.8rem;
+}
+
+.status-row.sub .value {
+  font-weight: 500;
+}
+
+.value.ping {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.value.good {
+  color: #7fdc9a;
+}
+
+.value.warn {
+  color: #f0c878;
+}
+
+.value.bad {
+  color: #f0a0a0;
+}
+
 .toggle {
   height: 48px;
 }

@@ -23,3 +23,6 @@ gpb-protocol = { path = "../../crates/gpb-protocol" }
 gpb-profile = { path = "../../crates/gpb-profile" }
 gpb-net = { path = "../../crates/gpb-net" }
 gpb-tunnel = { path = "../../crates/gpb-tunnel" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"

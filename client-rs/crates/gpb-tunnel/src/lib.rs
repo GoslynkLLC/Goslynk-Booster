@@ -29,42 +29,78 @@ pub enum TunnelError {
     Msg(String),
 }
 
+/// Counters shared with the UI. RTT fields are microseconds, 0 meaning "no sample yet".
+/// Only the downlink thread writes the RTT fields, so plain load/store is enough.
+#[derive(Default)]
 pub struct TunnelStats {
     pub packets_sent: AtomicU64,
     pub packets_received: AtomicU64,
+    /// IP bytes carried through the tunnel (tunnel headers excluded).
+    pub bytes_sent: AtomicU64,
+    pub bytes_received: AtomicU64,
     pub pings_sent: AtomicU64,
     pub pongs_received: AtomicU64,
-    pub last_rtt_us: AtomicU64, // 0 = none; otherwise microseconds
+    pub last_rtt_us: AtomicU64,
+    pub min_rtt_us: AtomicU64,
+    /// Exponential average, weight 1/8 (as TCP's SRTT).
+    pub avg_rtt_us: AtomicU64,
+    /// Mean deviation between consecutive samples, weight 1/16 (RFC 3550 interarrival jitter).
+    pub jitter_us: AtomicU64,
     pub handshake_rtt_us: AtomicU64,
 }
 
+fn us_to_ms(us: u64) -> Option<f64> {
+    (us != 0).then(|| us as f64 / 1000.0)
+}
+
 impl TunnelStats {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            packets_sent: AtomicU64::new(0),
-            packets_received: AtomicU64::new(0),
-            pings_sent: AtomicU64::new(0),
-            pongs_received: AtomicU64::new(0),
-            last_rtt_us: AtomicU64::new(0),
-            handshake_rtt_us: AtomicU64::new(0),
-        })
+    pub fn last_rtt_ms(&self) -> Option<f64> {
+        us_to_ms(self.last_rtt_us.load(Ordering::Relaxed))
     }
 
-    pub fn last_rtt_ms(&self) -> Option<f64> {
-        let us = self.last_rtt_us.load(Ordering::Relaxed);
-        if us == 0 {
-            None
-        } else {
-            Some(us as f64 / 1000.0)
-        }
+    pub fn min_rtt_ms(&self) -> Option<f64> {
+        us_to_ms(self.min_rtt_us.load(Ordering::Relaxed))
+    }
+
+    pub fn avg_rtt_ms(&self) -> Option<f64> {
+        us_to_ms(self.avg_rtt_us.load(Ordering::Relaxed))
+    }
+
+    pub fn jitter_ms(&self) -> Option<f64> {
+        let have_samples = self.pongs_received.load(Ordering::Relaxed) > 1;
+        have_samples.then(|| self.jitter_us.load(Ordering::Relaxed) as f64 / 1000.0)
     }
 
     pub fn handshake_rtt_ms(&self) -> Option<f64> {
-        let us = self.handshake_rtt_us.load(Ordering::Relaxed);
-        if us == 0 {
-            None
-        } else {
-            Some(us as f64 / 1000.0)
+        us_to_ms(self.handshake_rtt_us.load(Ordering::Relaxed))
+    }
+
+    /// Share of pings with no pong, as a percentage. The newest ping may still be in
+    /// flight, so it is not counted as lost.
+    pub fn loss_pct(&self) -> Option<f64> {
+        let sent = self.pings_sent.load(Ordering::Relaxed).saturating_sub(1);
+        if sent == 0 {
+            return None;
+        }
+        let got = self.pongs_received.load(Ordering::Relaxed).min(sent);
+        Some((sent - got) as f64 * 100.0 / sent as f64)
+    }
+
+    fn record_rtt(&self, rtt_us: u64) {
+        let rtt_us = rtt_us.max(1);
+        let prev = self.last_rtt_us.swap(rtt_us, Ordering::Relaxed);
+        let min = self.min_rtt_us.load(Ordering::Relaxed);
+        if min == 0 || rtt_us < min {
+            self.min_rtt_us.store(rtt_us, Ordering::Relaxed);
+        }
+        let avg = self.avg_rtt_us.load(Ordering::Relaxed);
+        let avg = if avg == 0 { rtt_us } else { (avg * 7 + rtt_us) / 8 };
+        self.avg_rtt_us.store(avg, Ordering::Relaxed);
+        if prev != 0 {
+            let d = rtt_us.abs_diff(prev) as i64;
+            let j = self.jitter_us.load(Ordering::Relaxed) as i64;
+            self.jitter_us
+                .store((j + (d - j) / 16).max(0) as u64, Ordering::Relaxed);
         }
     }
 }
@@ -184,13 +220,15 @@ pub fn start_pumps<T: TunDevice + 'static>(
 ) -> Result<TunnelSession, TunnelError> {
     let session_id = handshake.session_id;
     let stop = Arc::new(AtomicBool::new(false));
-    let stats = TunnelStats::new();
+    let stats = Arc::new(TunnelStats::default());
     stats
         .handshake_rtt_us
         .store(handshake_rtt_us, Ordering::Relaxed);
+    // Ping stamps are written by the keepalive thread and read back by the downlink thread,
+    // so both must count from the same instant.
+    let epoch = Instant::now();
 
     socket.set_read_timeout(Some(Duration::from_millis(200)))?;
-    // Clone socket for each thread via try_clone.
     let sock_up = socket.try_clone()?;
     let sock_down = socket.try_clone()?;
     let sock_keep = socket.try_clone()?;
@@ -198,9 +236,7 @@ pub fn start_pumps<T: TunDevice + 'static>(
     let stop_up = Arc::clone(&stop);
     let stats_up = Arc::clone(&stats);
     let sid_up = session_id;
-    // Split tun: we need read and write from two threads. Use a pair of Arc<Mutex<>> or
-    // duplicate via raw approach. Simplest MVP: one mutex around the tun.
-    let tun = Arc::new(std::sync::Mutex::new(tun));
+    let tun = Arc::new(tun);
     let tun_up = Arc::clone(&tun);
     let tun_down = Arc::clone(&tun);
 
@@ -210,29 +246,32 @@ pub fn start_pumps<T: TunDevice + 'static>(
             let mut pkt_buf = [0u8; MAX_PACKET_LEN];
             let mut ip_buf = [0u8; MAX_PACKET_LEN - proto::DATA_HEADER_LEN];
             while !stop_up.load(Ordering::Relaxed) {
-                let n = {
-                    let mut t = tun_up.lock().unwrap();
-                    match t.read(&mut ip_buf) {
-                        Ok(n) => n,
-                        Err(e) if e.kind() == ErrorKind::InvalidData => continue,
-                        Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => {
-                            continue
-                        }
-                        Err(e) if e.kind() == ErrorKind::UnexpectedEof => continue,
-                        Err(_) if stop_up.load(Ordering::Relaxed) => break,
-                        Err(_) => {
-                            thread::sleep(Duration::from_millis(1));
-                            continue;
-                        }
+                let n = match tun_up.read(&mut ip_buf) {
+                    Ok(n) => n,
+                    Err(e)
+                        if matches!(
+                            e.kind(),
+                            ErrorKind::InvalidData
+                                | ErrorKind::WouldBlock
+                                | ErrorKind::Interrupted
+                                | ErrorKind::UnexpectedEof
+                        ) =>
+                    {
+                        continue
+                    }
+                    Err(_) if stop_up.load(Ordering::Relaxed) => break,
+                    Err(_) => {
+                        thread::sleep(Duration::from_millis(1));
+                        continue;
                     }
                 };
                 if n == 0 {
                     continue;
                 }
-                // Drop non-unicast noise: IPv4 multicast/broadcast already filtered somewhat.
                 if let Ok(total) = write_data(&mut pkt_buf, &sid_up, &ip_buf[..n]) {
                     if sock_up.send(&pkt_buf[..total]).is_ok() {
                         stats_up.packets_sent.fetch_add(1, Ordering::Relaxed);
+                        stats_up.bytes_sent.fetch_add(n as u64, Ordering::Relaxed);
                     }
                 }
             }
@@ -246,7 +285,6 @@ pub fn start_pumps<T: TunDevice + 'static>(
         .name("gpb-downlink".into())
         .spawn(move || {
             let mut buf = [0u8; MAX_PACKET_LEN];
-            let clock = Instant::now();
             while !stop_down.load(Ordering::Relaxed) {
                 match sock_down.recv(&mut buf) {
                     Ok(n) if n > 0 => {
@@ -260,9 +298,11 @@ pub fn start_pumps<T: TunDevice + 'static>(
                                     if sid != sid_down {
                                         continue;
                                     }
-                                    let mut t = tun_down.lock().unwrap();
-                                    if t.write(ip).is_ok() {
+                                    if tun_down.write(ip).is_ok() {
                                         stats_down.packets_received.fetch_add(1, Ordering::Relaxed);
+                                        stats_down
+                                            .bytes_received
+                                            .fetch_add(ip.len() as u64, Ordering::Relaxed);
                                     }
                                 }
                             }
@@ -272,11 +312,9 @@ pub fn start_pumps<T: TunDevice + 'static>(
                                         continue;
                                     }
                                     stats_down.pongs_received.fetch_add(1, Ordering::Relaxed);
-                                    let now_us = clock.elapsed().as_micros() as u64;
+                                    let now_us = epoch.elapsed().as_micros() as u64;
                                     if now_us >= stamp {
-                                        stats_down
-                                            .last_rtt_us
-                                            .store(now_us - stamp, Ordering::Relaxed);
+                                        stats_down.record_rtt(now_us - stamp);
                                     }
                                 }
                             }
@@ -298,9 +336,8 @@ pub fn start_pumps<T: TunDevice + 'static>(
     let keepalive_handle = thread::Builder::new()
         .name("gpb-keepalive".into())
         .spawn(move || {
-            let clock = Instant::now();
             while !stop_keep.load(Ordering::Relaxed) {
-                let stamp = clock.elapsed().as_micros() as u64;
+                let stamp = epoch.elapsed().as_micros() as u64;
                 let pkt = build_ping(&sid_keep, stamp);
                 if sock_keep.send(&pkt).is_ok() {
                     stats_keep.pings_sent.fetch_add(1, Ordering::Relaxed);
@@ -324,4 +361,37 @@ pub fn start_pumps<T: TunDevice + 'static>(
         stats,
         handshake,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rtt_stats_follow_samples() {
+        let s = TunnelStats::default();
+        assert_eq!(s.last_rtt_ms(), None);
+        for (i, us) in [40_000u64, 44_000, 38_000].into_iter().enumerate() {
+            s.pongs_received.store(i as u64 + 1, Ordering::Relaxed);
+            s.record_rtt(us);
+        }
+        assert_eq!(s.last_rtt_ms(), Some(38.0));
+        assert_eq!(s.min_rtt_ms(), Some(38.0));
+        // 40000 -> (7*40000+44000)/8 = 40500 -> (7*40500+38000)/8 = 40187
+        assert_eq!(s.avg_rtt_us.load(Ordering::Relaxed), 40_187);
+        // |44000-40000|/16 = 250 -> 250 + (6000-250)/16 = 609
+        assert_eq!(s.jitter_us.load(Ordering::Relaxed), 609);
+    }
+
+    #[test]
+    fn loss_ignores_the_ping_in_flight() {
+        let s = TunnelStats::default();
+        s.pings_sent.store(1, Ordering::Relaxed);
+        assert_eq!(s.loss_pct(), None);
+        s.pings_sent.store(11, Ordering::Relaxed);
+        s.pongs_received.store(10, Ordering::Relaxed);
+        assert_eq!(s.loss_pct(), Some(0.0));
+        s.pongs_received.store(9, Ordering::Relaxed);
+        assert_eq!(s.loss_pct(), Some(10.0));
+    }
 }

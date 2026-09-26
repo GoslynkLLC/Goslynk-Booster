@@ -1297,6 +1297,7 @@ dependencies = [
  "gpb-profile",
  "gpb-protocol",
  "gpb-tunnel",
+ "libc",
  "serde",
  "serde_json",
  "tauri",

@@ -7,7 +7,8 @@
       "id": "lol",
       "name": "League of Legends",
       "processNames": [
-        "League of Legends.exe"
+        "League of Legends.exe",
+        "LeagueofLegends"
       ],
       "lobbyAddresses": [],
       "regions": [

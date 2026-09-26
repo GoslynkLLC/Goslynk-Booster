@@ -3,7 +3,7 @@
 use super::{NetError, RouteTable, TunDevice};
 use libc::{c_char, c_void, sockaddr, socklen_t, AF_SYSTEM, AF_SYS_CONTROL, SOCK_DGRAM};
 use std::ffi::CStr;
-use std::io::{self, ErrorKind, Read, Write};
+use std::io::{self, ErrorKind};
 use std::mem::{size_of, zeroed};
 use std::net::Ipv4Addr;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -120,31 +120,17 @@ pub fn open_utun(
         ],
     )?;
 
-    Ok(MacUtun {
-        fd: owned,
-        name,
-        file: None,
-    })
+    unsafe { libc::fcntl(owned.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+
+    Ok(MacUtun { fd: owned, name })
 }
+
+/// How long an idle `read` waits before returning `WouldBlock`.
+const READ_POLL_MS: i32 = 200;
 
 pub struct MacUtun {
     fd: OwnedFd,
     name: String,
-    /// Lazily wrap as File for Read/Write — set on first use via raw fd clone path.
-    file: Option<std::fs::File>,
-}
-
-impl MacUtun {
-    fn file_mut(&mut self) -> &mut std::fs::File {
-        if self.file.is_none() {
-            let raw = self.fd.as_raw_fd();
-            // Duplicate so OwnedFd and File don't both own the same fd.
-            let dup = unsafe { libc::dup(raw) };
-            assert!(dup >= 0);
-            self.file = Some(unsafe { std::fs::File::from_raw_fd(dup) });
-        }
-        self.file.as_mut().unwrap()
-    }
 }
 
 impl TunDevice for MacUtun {
@@ -152,34 +138,64 @@ impl TunDevice for MacUtun {
         &self.name
     }
 
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        // utun prefixes each packet with a 4-byte address family (AF_INET = 2) in network order.
+    /// utun prefixes each packet with a 4-byte address family in network order.
+    fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+        let fd = self.fd.as_raw_fd();
+        let mut pfd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ready = unsafe { libc::poll(&mut pfd, 1, READ_POLL_MS) };
+        if ready < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if ready == 0 {
+            return Err(io::Error::new(ErrorKind::WouldBlock, "utun idle"));
+        }
+
         let mut header = [0u8; 4];
-        let mut tmp = vec![0u8; buf.len() + 4];
-        let n = self.file_mut().read(&mut tmp)?;
-        if n < 4 {
+        let iov = [
+            libc::iovec {
+                iov_base: header.as_mut_ptr() as *mut c_void,
+                iov_len: header.len(),
+            },
+            libc::iovec {
+                iov_base: buf.as_mut_ptr() as *mut c_void,
+                iov_len: buf.len(),
+            },
+        ];
+        let n = unsafe { libc::readv(fd, iov.as_ptr(), iov.len() as i32) };
+        if n < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let n = n as usize;
+        if n < header.len() {
             return Err(io::Error::new(ErrorKind::UnexpectedEof, "utun short read"));
         }
-        header.copy_from_slice(&tmp[..4]);
-        let af = u32::from_be_bytes(header);
-        if af != libc::AF_INET as u32 {
-            // Skip non-IPv4 (e.g. IPv6 neighbour noise).
+        if u32::from_be_bytes(header) != libc::AF_INET as u32 {
             return Err(io::Error::new(ErrorKind::InvalidData, "non-ipv4 on utun"));
         }
-        let payload = n - 4;
-        if payload > buf.len() {
-            return Err(io::Error::new(ErrorKind::OutOfMemory, "buffer too small"));
-        }
-        buf[..payload].copy_from_slice(&tmp[4..n]);
-        Ok(payload)
+        Ok(n - header.len())
     }
 
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut out = Vec::with_capacity(buf.len() + 4);
-        out.extend_from_slice(&(libc::AF_INET as u32).to_be_bytes());
-        out.extend_from_slice(buf);
-        self.file_mut().write_all(&out)?;
-        Ok(buf.len())
+    fn write(&self, buf: &[u8]) -> io::Result<usize> {
+        let header = (libc::AF_INET as u32).to_be_bytes();
+        let iov = [
+            libc::iovec {
+                iov_base: header.as_ptr() as *mut c_void,
+                iov_len: header.len(),
+            },
+            libc::iovec {
+                iov_base: buf.as_ptr() as *mut c_void,
+                iov_len: buf.len(),
+            },
+        ];
+        let n = unsafe { libc::writev(self.fd.as_raw_fd(), iov.as_ptr(), iov.len() as i32) };
+        if n < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok((n as usize).saturating_sub(header.len()))
     }
 }
 
@@ -235,39 +251,24 @@ impl MacRouteTable {
     }
 }
 
+// Routes are unscoped on purpose: an `-ifscope` route only serves sockets bound to that
+// interface, so the game's ordinary sockets would ignore it and never enter the tunnel.
+// A leftover route from a crashed session would make `add` fail with "File exists", so
+// each add first deletes whatever unscoped route holds the same destination.
 impl RouteTable for MacRouteTable {
-    fn pin_host(&mut self, host: Ipv4Addr, via_gateway: Ipv4Addr, iface: &str) -> Result<(), NetError> {
-        // route -n add -host RELAY GATEWAY -ifscope IFACE
-        run_cmd(
-            "route",
-            &[
-                "-n",
-                "add",
-                "-host",
-                &host.to_string(),
-                &via_gateway.to_string(),
-                "-ifscope",
-                iface,
-            ],
-        )?;
+    fn pin_host(&mut self, host: Ipv4Addr, via_gateway: Ipv4Addr, _iface: &str) -> Result<(), NetError> {
+        let h = host.to_string();
+        let _ = run_cmd("route", &["-n", "delete", "-host", &h]);
+        run_cmd("route", &["-n", "add", "-host", &h, &via_gateway.to_string()])?;
         self.pinned_hosts.push(host);
         Ok(())
     }
 
-    fn add_cidr(&mut self, cidr: &str, gateway: Ipv4Addr, iface: &str) -> Result<(), NetError> {
+    fn add_cidr(&mut self, cidr: &str, _gateway: Ipv4Addr, iface: &str) -> Result<(), NetError> {
         let (net, bits) = parse_cidr(cidr)?;
-        run_cmd(
-            "route",
-            &[
-                "-n",
-                "add",
-                "-net",
-                &format!("{net}/{bits}"),
-                &gateway.to_string(),
-                "-ifscope",
-                iface,
-            ],
-        )?;
+        let dest = format!("{net}/{bits}");
+        let _ = run_cmd("route", &["-n", "delete", "-net", &dest]);
+        run_cmd("route", &["-n", "add", "-net", &dest, "-interface", iface])?;
         self.installed_cidrs.push(cidr.to_string());
         Ok(())
     }

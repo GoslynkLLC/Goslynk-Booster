@@ -108,7 +108,7 @@ impl TunDevice for WinTun {
         &self.name
     }
 
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+    fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
         // Non-blocking poll so the tunnel stop flag can be observed.
         match self.session.try_receive() {
             Ok(Some(packet)) => {
@@ -134,7 +134,7 @@ impl TunDevice for WinTun {
         }
     }
 
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    fn write(&self, buf: &[u8]) -> io::Result<usize> {
         if buf.len() > u16::MAX as usize {
             return Err(io::Error::new(ErrorKind::InvalidInput, "packet too large"));
         }

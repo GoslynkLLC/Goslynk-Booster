@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiConnect, apiDisconnect, apiGetStatus, errMsg } from "../api.js";
 
 const RELAY_SOURCE = {
@@ -7,6 +7,52 @@ const RELAY_SOURCE = {
   build: "relay mặc định",
   none: "chưa có relay",
 };
+
+const POLL_MS = 1000;
+// With the tunnel up this long and no packet sent, the game is not using the routed ranges.
+const IDLE_HINT_MS = 15000;
+
+const ms = (v) => (v != null ? `${v < 10 ? v.toFixed(1) : Math.round(v)} ms` : "—");
+
+function bytes(n) {
+  if (!n) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
+}
+
+function pingClass(v) {
+  if (v == null) return " muted";
+  if (v < 60) return " good";
+  if (v < 120) return " warn";
+  return " bad";
+}
+
+// Packets per second from two consecutive status samples.
+function useRates(status) {
+  const prev = useRef(null);
+  const [rates, setRates] = useState({ up: 0, down: 0 });
+  useEffect(() => {
+    if (!status.connected) {
+      prev.current = null;
+      setRates({ up: 0, down: 0 });
+      return;
+    }
+    const now = performance.now();
+    const p = prev.current;
+    if (p) {
+      const dt = (now - p.at) / 1000;
+      if (dt > 0.2) {
+        setRates({
+          up: Math.max(0, (status.packetsSent - p.sent) / dt),
+          down: Math.max(0, (status.packetsReceived - p.received) / dt),
+        });
+      }
+    }
+    prev.current = { at: now, sent: status.packetsSent || 0, received: status.packetsReceived || 0 };
+  }, [status]);
+  return rates;
+}
 
 export default function BoostScreen({
   game,
@@ -21,6 +67,8 @@ export default function BoostScreen({
   const [status, setStatus] = useState({ connected: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [connectedAt, setConnectedAt] = useState(null);
+  const rates = useRates(status);
 
   useEffect(() => {
     let alive = true;
@@ -33,7 +81,7 @@ export default function BoostScreen({
       }
     };
     tick();
-    const id = setInterval(tick, 1500);
+    const id = setInterval(tick, POLL_MS);
     return () => {
       alive = false;
       clearInterval(id);
@@ -65,6 +113,7 @@ export default function BoostScreen({
           packetsSent: 0,
           packetsReceived: 0,
         });
+        setConnectedAt(Date.now());
       }
     } catch (e) {
       setError(errMsg(e));
@@ -79,6 +128,11 @@ export default function BoostScreen({
   }
 
   const connected = !!status.connected;
+  const idle =
+    connected &&
+    !status.packetsSent &&
+    connectedAt != null &&
+    Date.now() - connectedAt > IDLE_HINT_MS;
   const regions = game.regions || [];
   const routedCount = regions
     .filter((r) => regionIds.includes(r.id))
@@ -110,29 +164,58 @@ export default function BoostScreen({
           </span>
         </div>
         <div className="status-row">
-          <span className="label">Inner IP</span>
-          <span className="value">{status.innerIp || "—"}</span>
+          <span className="label">Ping tới relay</span>
+          <span className={`value ping${pingClass(connected ? status.lastRttMs : null)}`}>
+            {connected ? ms(status.lastRttMs) : "—"}
+          </span>
         </div>
-        <div className="status-row">
-          <span className="label">Handshake RTT</span>
+        <div className="status-row sub">
+          <span className="label">Trung bình · thấp nhất</span>
           <span className="value">
-            {status.handshakeRttMs != null
-              ? `${status.handshakeRttMs.toFixed(1)} ms`
-              : "—"}
+            {connected ? `${ms(status.avgRttMs)} · ${ms(status.minRttMs)}` : "—"}
+          </span>
+        </div>
+        <div className="status-row sub">
+          <span className="label">Jitter</span>
+          <span className="value">{connected ? ms(status.jitterMs) : "—"}</span>
+        </div>
+        <div className="status-row sub">
+          <span className="label">Mất gói</span>
+          <span className={`value${status.lossPct > 2 ? " bad" : ""}`}>
+            {connected && status.lossPct != null ? `${status.lossPct.toFixed(1)}%` : "—"}
           </span>
         </div>
         <div className="status-row">
-          <span className="label">Ping RTT</span>
-          <span className="value">
-            {status.lastRttMs != null ? `${status.lastRttMs.toFixed(1)} ms` : "—"}
-          </span>
-        </div>
-        <div className="status-row">
-          <span className="label">Packets</span>
+          <span className="label">Gói game</span>
           <span className="value">
             ↑{status.packetsSent || 0} ↓{status.packetsReceived || 0}
           </span>
         </div>
+        <div className="status-row sub">
+          <span className="label">Tốc độ</span>
+          <span className="value">
+            {connected ? `↑${Math.round(rates.up)} ↓${Math.round(rates.down)} gói/s` : "—"}
+          </span>
+        </div>
+        <div className="status-row sub">
+          <span className="label">Dữ liệu</span>
+          <span className="value">
+            {connected ? `↑${bytes(status.bytesSent)} ↓${bytes(status.bytesReceived)}` : "—"}
+          </span>
+        </div>
+        <div className="status-row sub">
+          <span className="label">Inner IP · handshake</span>
+          <span className="value">
+            {connected ? `${status.innerIp || "—"} · ${ms(status.handshakeRttMs)}` : "—"}
+          </span>
+        </div>
+        {connected ? (
+          <p className="hint">
+            {idle
+              ? "Chưa có gói game nào qua tunnel. Vào trận để game kết nối tới server khu vực đã chọn."
+              : "Ping trong game ≈ ping tới relay + đoạn relay → server game."}
+          </p>
+        ) : null}
       </section>
 
       <section className="config regions">

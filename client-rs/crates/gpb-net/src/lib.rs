@@ -17,10 +17,13 @@ pub enum NetError {
 }
 
 /// A virtual TUN that carries raw IPv4 packets (no ethernet header).
-pub trait TunDevice: Send {
+///
+/// One thread reads while another writes, so both take `&self`. `read` must return
+/// `WouldBlock` within a fraction of a second when idle so the reader can see a stop request.
+pub trait TunDevice: Send + Sync {
     fn name(&self) -> &str;
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize>;
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize>;
+    fn read(&self, buf: &mut [u8]) -> io::Result<usize>;
+    fn write(&self, buf: &[u8]) -> io::Result<usize>;
 }
 
 /// Install / remove host routes that steer game CIDRs into the tunnel.
@@ -70,10 +73,10 @@ impl TunDevice for StubTun {
     fn name(&self) -> &str {
         "unsupported"
     }
-    fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+    fn read(&self, _buf: &mut [u8]) -> io::Result<usize> {
         Err(io::Error::new(io::ErrorKind::Unsupported, "unsupported OS"))
     }
-    fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+    fn write(&self, _buf: &[u8]) -> io::Result<usize> {
         Err(io::Error::new(io::ErrorKind::Unsupported, "unsupported OS"))
     }
 }

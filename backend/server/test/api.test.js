@@ -66,6 +66,7 @@ before(async () => {
 
 after(async () => {
   await new Promise((r) => server.close(r));
+  await pool.query("DROP TABLE IF EXISTS gsb_sessions, gsb_login_attempts, gsb_audit_log, gsb_settings, gsb_users");
   await pool.end();
 });
 
