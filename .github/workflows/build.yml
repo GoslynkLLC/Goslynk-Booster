@@ -23,7 +23,8 @@ jobs:
         include:
           - name: Windows x64
             os: windows-latest
-            args: ""
+            # WiX light.exe fails on the current runner image; ship the NSIS installer only.
+            args: --bundles nsis
             bundle: client-rs/target/release/bundle
             artifact: Goslynk-Booster-windows-x64
           - name: macOS universal
