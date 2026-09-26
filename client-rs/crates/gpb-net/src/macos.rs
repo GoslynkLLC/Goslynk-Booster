@@ -199,6 +199,13 @@ impl TunDevice for MacUtun {
     }
 }
 
+/// Lets a packet pump preempt the game's own threads when the CPU is saturated.
+pub fn prioritize_current_thread() {
+    unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0);
+    }
+}
+
 /// Parse `route -n get default` for gateway and interface.
 pub fn default_gateway() -> Result<(Ipv4Addr, String), NetError> {
     let out = Command::new("route")

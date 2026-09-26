@@ -53,6 +53,12 @@ pub struct StatusSnapshot {
     pub handshake_rtt_ms: Option<f64>,
     pub inner_ip: Option<String>,
     pub mtu: Option<u16>,
+    /// Every packet goes out twice (the relay supports DataDup).
+    #[serde(default)]
+    pub redundant: bool,
+    /// Downlink packets that arrived only thanks to their second copy.
+    #[serde(default)]
+    pub rescued_packets: u64,
     /// Games whose routes go through the tunnel; filled in by the app, not the helper.
     #[serde(default)]
     pub games: Vec<String>,
@@ -109,6 +115,8 @@ impl LiveTunnel {
             handshake_rtt_ms: s.handshake_rtt_ms(),
             inner_ip: Some(ipv4_to_string(&self.session.handshake.client_ip)),
             mtu: Some(self.session.handshake.mtu),
+            redundant: s.redundant.load(Ordering::Relaxed),
+            rescued_packets: s.rescued_packets(),
             games: Vec::new(),
         }
     }

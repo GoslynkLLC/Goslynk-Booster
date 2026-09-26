@@ -7,10 +7,22 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
+use windows_sys::Win32::System::Threading::WaitForSingleObject;
+
+/// Upper bound on one idle wait in `read`, so the tunnel's stop flag is still observed.
+const READ_WAIT_MS: u32 = 100;
 
 /// Whether this process holds an elevated (Administrator) token.
 pub fn is_elevated() -> bool {
     unsafe { windows_sys::Win32::UI::Shell::IsUserAnAdmin() != 0 }
+}
+
+/// Lets a packet pump preempt the game's own threads when the CPU is saturated.
+pub fn prioritize_current_thread() {
+    use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST};
+    unsafe {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    }
 }
 
 /// Open a Wintun adapter, assign inner IPs / MTU, start a session.
@@ -153,8 +165,14 @@ impl TunDevice for WinTun {
                 Ok(bytes.len())
             }
             Ok(None) => {
-                // Brief wait so we do not spin the CPU.
-                std::thread::sleep(Duration::from_millis(1));
+                // Wait on the adapter's read event, not a sleep: Sleep(1) lasts a whole timer
+                // tick (15.6 ms by default), and every game packet would wait it out.
+                match self.session.get_read_wait_event() {
+                    Ok(event) => unsafe {
+                        WaitForSingleObject(event as _, READ_WAIT_MS);
+                    },
+                    Err(_) => std::thread::sleep(Duration::from_millis(1)),
+                }
                 Err(io::Error::new(ErrorKind::WouldBlock, "no packet"))
             }
             Err(e) => Err(io::Error::other(format!("wintun recv: {e}"))),

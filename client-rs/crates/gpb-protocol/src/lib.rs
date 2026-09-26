@@ -21,6 +21,10 @@ pub const TYPE_DISCONNECT: u8 = 0x6;
 pub const TYPE_DATA_ENCRYPTED: u8 = 0x7; // reserved, never sent
 pub const TYPE_PROBE: u8 = 0x8;
 pub const TYPE_PROBE_REPLY: u8 = 0x9;
+/// Asks the relay for DataDup; a relay that supports it echoes the Hello, an older one drops it.
+pub const TYPE_HELLO: u8 = 0xA;
+/// Data plus a sequence number, every packet sent twice; the receiver drops the second copy.
+pub const TYPE_DATA_DUP: u8 = 0xB;
 
 pub const AUTH_MODE_PSK: u8 = 0;
 pub const AUTH_MODE_TOKEN: u8 = 1;
@@ -29,9 +33,11 @@ pub const HANDSHAKE_REQ_PSK_LEN: usize = 58;
 pub const HANDSHAKE_RESP_PSK_LEN: usize = 60;
 pub const HANDSHAKE_RESP_V2_LEN: usize = 52;
 pub const DATA_HEADER_LEN: usize = 9;
+pub const DATA_DUP_HEADER_LEN: usize = 13;
 pub const PING_LEN: usize = 17;
 pub const PROBE_LEN: usize = 17;
 pub const DISCONNECT_LEN: usize = 9;
+pub const HELLO_LEN: usize = 9;
 pub const MAX_PACKET_LEN: usize = 2048;
 pub const NONCE_LEN: usize = 8;
 
@@ -249,6 +255,80 @@ pub fn try_read_data(pkt: &[u8]) -> Result<(SessionId, &[u8]), ProtocolError> {
     Ok((session_id, payload))
 }
 
+/// Writes a DataDup header (Data header plus a big-endian sequence number) and the packet.
+pub fn write_data_dup(
+    dst: &mut [u8],
+    session_id: &SessionId,
+    seq: u32,
+    ip_packet: &[u8],
+) -> Result<usize, ProtocolError> {
+    let need = DATA_DUP_HEADER_LEN + ip_packet.len();
+    if dst.len() < need {
+        return Err(ProtocolError::BufferTooSmall);
+    }
+    dst[0] = header(TYPE_DATA_DUP);
+    dst[1..9].copy_from_slice(session_id);
+    dst[9..13].copy_from_slice(&seq.to_be_bytes());
+    dst[DATA_DUP_HEADER_LEN..need].copy_from_slice(ip_packet);
+    Ok(need)
+}
+
+/// Splits session id, sequence number and IPv4 payload from a DataDup message.
+pub fn try_read_data_dup(pkt: &[u8]) -> Result<(SessionId, u32, &[u8]), ProtocolError> {
+    if pkt.len() <= DATA_DUP_HEADER_LEN {
+        return Err(ProtocolError::ShortPacket);
+    }
+    let mut session_id = [0u8; 8];
+    session_id.copy_from_slice(&pkt[1..9]);
+    let seq = u32::from_be_bytes(pkt[9..13].try_into().unwrap());
+    let payload = &pkt[DATA_DUP_HEADER_LEN..];
+    if payload[0] >> 4 != 4 {
+        return Err(ProtocolError::NotIpv4);
+    }
+    Ok((session_id, seq, payload))
+}
+
+pub fn build_hello(session_id: &SessionId) -> Vec<u8> {
+    let mut pkt = vec![0u8; HELLO_LEN];
+    pkt[0] = header(TYPE_HELLO);
+    pkt[1..9].copy_from_slice(session_id);
+    pkt
+}
+
+/// Drops the second copy of a DataDup packet: remembers the highest sequence number and which
+/// of the 63 before it arrived. Older than that window counts as seen - too late for a game.
+/// Same rules as `DupFilter` in the relay.
+#[derive(Default)]
+pub struct DupFilter {
+    top: u32,
+    seen: u64,
+    started: bool,
+}
+
+impl DupFilter {
+    /// Whether `seq` is new; records it.
+    pub fn fresh(&mut self, seq: u32) -> bool {
+        if !self.started {
+            (self.started, self.top, self.seen) = (true, seq, 1);
+            return true;
+        }
+        // Serial-number arithmetic, so the filter survives the counter wrapping.
+        let d = seq.wrapping_sub(self.top) as i32;
+        if d > 0 {
+            self.seen = if d >= 64 { 1 } else { (self.seen << d) | 1 };
+            self.top = seq;
+            true
+        } else if d <= -64 {
+            false
+        } else {
+            let bit = 1u64 << (-d);
+            let fresh = self.seen & bit == 0;
+            self.seen |= bit;
+            fresh
+        }
+    }
+}
+
 fn build_ping_like(msg_type: u8, session_id: &SessionId, stamp: u64) -> Vec<u8> {
     let mut pkt = vec![0u8; PING_LEN];
     pkt[0] = header(msg_type);
@@ -332,3 +412,59 @@ pub fn ipv4_to_string(ip: &[u8; 4]) -> String {
 
 #[cfg(test)]
 mod vectors;
+
+#[cfg(test)]
+mod datadup_tests {
+    use super::*;
+
+    #[test]
+    fn data_dup_round_trip() {
+        let sid = [9, 8, 7, 6, 5, 4, 3, 2];
+        let ip = [
+            0x45u8, 0, 0, 20, 1, 2, 3, 4, 64, 17, 0, 0, 10, 77, 0, 2, 1, 1, 1, 1,
+        ];
+        let mut buf = [0u8; MAX_PACKET_LEN];
+        let n = write_data_dup(&mut buf, &sid, 0xdead_beef, &ip).unwrap();
+        assert_eq!(n, DATA_DUP_HEADER_LEN + ip.len());
+        assert_eq!(parse_header(buf[0]), (VERSION, TYPE_DATA_DUP));
+        let (got_sid, seq, payload) = try_read_data_dup(&buf[..n]).unwrap();
+        assert_eq!((got_sid, seq, payload), (sid, 0xdead_beef, &ip[..]));
+        assert_eq!(
+            try_read_data_dup(&buf[..DATA_DUP_HEADER_LEN]),
+            Err(ProtocolError::ShortPacket)
+        );
+    }
+
+    /// Same steps as TestDupFilter in the relay, so the two filters agree.
+    #[test]
+    fn dup_filter_matches_the_relay() {
+        let mut f = DupFilter::default();
+        let steps = [
+            (10, true),
+            (10, false),
+            (12, true),
+            (11, true),
+            (11, false),
+            (12, false),
+            (75, true),
+            (12, false),
+            (13, true),
+            (11, false),
+            (200, true),
+            (199, true),
+            (200, false),
+        ];
+        for (i, (seq, fresh)) in steps.into_iter().enumerate() {
+            assert_eq!(f.fresh(seq), fresh, "step {i}: seq {seq}");
+        }
+    }
+
+    #[test]
+    fn dup_filter_wraps() {
+        let mut f = DupFilter::default();
+        for seq in [u32::MAX - 1, u32::MAX, 0, 1] {
+            assert!(f.fresh(seq), "seq {seq:#x}");
+        }
+        assert!(!f.fresh(u32::MAX));
+    }
+}

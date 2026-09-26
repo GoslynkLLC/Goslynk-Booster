@@ -254,6 +254,31 @@ The relay therefore treats a Probe differently in every respect that matters:
 The reply is the request's size, so it amplifies nothing; the per-session cap bounds what anybody
 holding a session id could reflect at another address.
 
+## Hello and DataDup - duplicate sending
+
+Also added without a version bump. Each packet goes out twice so that one lost copy costs nothing;
+a game uses about 10 KB/s, so doubling it is cheap next to a loss burst on a congested route.
+
+| type | size | layout |
+|---|---|---|
+| `0xA` Hello | 9 | header, session id |
+| `0xB` DataDup | 13 + IP | header, session id, sequence number (u32 big-endian), IPv4 packet |
+
+- After the handshake the client sends Hello with every keepalive until the relay echoes it. A relay
+  older than this drops `0xA`, the client never hears back, and plain Data carries on.
+- The relay accepts Hello only from the session's current address (it is unsigned, like Disconnect),
+  switches that session's downlink to DataDup and echoes the Hello. The client then sends DataDup.
+- Both copies are sent back to back under one sequence number, counted per direction from 1. The
+  receiver keeps the highest number seen and a 64-bit bitmap of the 63 before it: a number already
+  in the bitmap, or older than the window, is dropped. Numbers wrap using serial-number arithmetic.
+- The relay applies the duplicate filter after the anti-spoofing checks, so a forged copy cannot
+  burn a real packet's number, and before the rate limit, so the second copy is not charged.
+- A handshake that resumes a live session resets its filter and turns DataDup off until the next
+  Hello: a reconnecting client numbers from 1 again.
+- Plain Data stays valid in both directions at all times.
+
+DataDup is 4 bytes longer than Data: 1400 + 41 = 1441, still under 1500.
+
 ## MTU arithmetic
 
 Unchanged. The handshake grew; Data did not, so the per-packet overhead is the same 37 bytes and

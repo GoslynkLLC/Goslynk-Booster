@@ -120,6 +120,13 @@ type session struct {
 	up   *bucket // client -> internet, touched only by loopUDP
 	down *bucket // internet -> client, touched only by loopTUN
 
+	// dup is set once the client says Hello: from then on the downlink goes out as DataDup, each
+	// packet twice. upSeen (loopUDP only) drops the second copy of the client's DataDup, and
+	// downSeq (loopTUN only) numbers the downlink.
+	dup     atomic.Bool
+	upSeen  protocol.DupFilter
+	downSeq atomic.Uint32
+
 	// probeSecond and probeCount cap how many Probes this session is answered in one second. Touched
 	// only by loopUDP. See handleProbe.
 	probeSecond atomic.Int64
@@ -184,6 +191,7 @@ type Server struct {
 		rxBytes, txBytes     atomic.Uint64
 		dropped              atomic.Uint64
 		limited              atomic.Uint64
+		duplicates           atomic.Uint64 // second copies of DataDup, dropped as intended
 	}
 }
 
@@ -380,6 +388,10 @@ func (s *Server) loopUDP() error {
 			s.handleHandshake(buf[:n], from)
 		case protocol.TypeData:
 			s.handleData(buf[:n], from)
+		case protocol.TypeDataDup:
+			s.handleDataDup(buf[:n], from)
+		case protocol.TypeHello:
+			s.handleHello(buf[:n], from)
 		case protocol.TypePing:
 			s.handlePing(buf[:n], from)
 		case protocol.TypeProbe:
@@ -555,6 +567,21 @@ func (s *Server) handleData(pkt []byte, from netip.AddrPort) {
 		s.stats.dropped.Add(1)
 		return
 	}
+	s.forwardUp(sid, inner, from, nil)
+}
+
+func (s *Server) handleDataDup(pkt []byte, from netip.AddrPort) {
+	sid, seq, inner, err := protocol.DecodeDataDup(pkt)
+	if err != nil {
+		s.stats.dropped.Add(1)
+		return
+	}
+	s.forwardUp(sid, inner, from, &seq)
+}
+
+// forwardUp writes one client packet into the TUN device. seq is the DataDup sequence number, or
+// nil for plain Data.
+func (s *Server) forwardUp(sid protocol.SessionID, inner []byte, from netip.AddrPort, seq *uint32) {
 	sess := s.lookup(sid)
 	if sess == nil {
 		s.stats.dropped.Add(1)
@@ -569,6 +596,12 @@ func (s *Server) handleData(pkt []byte, from netip.AddrPort) {
 	// Stop anyone using the tunnel as a stepping stone into the VPS's private network.
 	if dst, ok := protocol.DstIPv4(inner); !ok || s.isForbiddenDst(dst) {
 		s.stats.dropped.Add(1)
+		return
+	}
+	// After the checks above, so a forged packet cannot mark a sequence number as seen and get
+	// the real one dropped.
+	if seq != nil && !sess.upSeen.Fresh(*seq) {
+		s.stats.duplicates.Add(1)
 		return
 	}
 
@@ -595,6 +628,34 @@ func (s *Server) handleData(pkt []byte, from netip.AddrPort) {
 		s.log.Warn("TUN write failed", "err", err)
 		s.stats.dropped.Add(1)
 	}
+}
+
+// handleHello switches a session to DataDup and echoes the Hello so the client does the same.
+// Accepted only from the session's current address, like Disconnect: it carries no signature, and
+// a stranger holding a session id must not be able to double that session's downlink.
+func (s *Server) handleHello(pkt []byte, from netip.AddrPort) {
+	if len(pkt) != protocol.HelloLen {
+		s.stats.dropped.Add(1)
+		return
+	}
+	sid, err := protocol.DecodeSessionID(pkt)
+	if err != nil {
+		s.stats.dropped.Add(1)
+		return
+	}
+	sess := s.lookup(sid)
+	if sess == nil {
+		s.stats.dropped.Add(1)
+		return
+	}
+	if cur := sess.addr.Load(); cur == nil || *cur != from {
+		s.stats.dropped.Add(1)
+		return
+	}
+	if !sess.dup.Swap(true) {
+		s.log.Info("session sends every packet twice", "inner_ip", sess.innerIP.String())
+	}
+	s.sendTo(protocol.BuildHello(sid), from)
 }
 
 func (s *Server) handlePing(pkt []byte, from netip.AddrPort) {
@@ -696,7 +757,7 @@ func (s *Server) loopTUN() error {
 		if n < 20 || readBuf[0]>>4 != 4 {
 			continue // skip IPv6 and garbage
 		}
-		if n > protocol.MaxPacketLen-protocol.DataHeaderLen {
+		if n > protocol.MaxPacketLen-protocol.DataDupHeaderLen {
 			// EncodeData copies into a fixed buffer, so a packet this large would be silently
 			// truncated and the client would receive a corrupt one - far worse than losing it.
 			// Only reachable if the TUN MTU is raised beyond what MaxPacketLen allows.
@@ -727,14 +788,23 @@ func (s *Server) loopTUN() error {
 			s.stats.limited.Add(1)
 			continue
 		}
-		out := protocol.EncodeData(sendBuf, sess.id, readBuf[:n])
-		if _, err := s.conn.WriteToUDPAddrPort(out, *addr); err != nil {
-			s.log.Debug("UDP send failed", "err", err)
-			continue
+		if sess.dup.Load() {
+			out := protocol.EncodeDataDup(sendBuf, sess.id, sess.downSeq.Add(1), readBuf[:n])
+			s.sendData(out, *addr)
+			s.sendData(out, *addr)
+		} else {
+			s.sendData(protocol.EncodeData(sendBuf, sess.id, readBuf[:n]), *addr)
 		}
-		s.stats.txPackets.Add(1)
-		s.stats.txBytes.Add(uint64(len(out)))
 	}
+}
+
+func (s *Server) sendData(out []byte, to netip.AddrPort) {
+	if _, err := s.conn.WriteToUDPAddrPort(out, to); err != nil {
+		s.log.Debug("UDP send failed", "err", err)
+		return
+	}
+	s.stats.txPackets.Add(1)
+	s.stats.txBytes.Add(uint64(len(out)))
 }
 
 func (s *Server) loopJanitor(done <-chan struct{}) {
@@ -799,7 +869,8 @@ func (s *Server) sweep(now time.Time) {
 		"rx_bytes", s.stats.rxBytes.Load(),
 		"tx_bytes", s.stats.txBytes.Load(),
 		"dropped", s.stats.dropped.Load(),
-		"rate_limited", s.stats.limited.Load())
+		"rate_limited", s.stats.limited.Load(),
+		"dup_copies", s.stats.duplicates.Load())
 }
 
 // ------------------------------------------------------------ session table
@@ -826,6 +897,11 @@ func (s *Server) allocSession(from netip.AddrPort, resKey protocol.ClientID, ide
 			// its live session has a new client id, and a report still naming the old one would
 			// make one installation look like two. Written under s.mu, which Snapshot reads under.
 			live.ident = ident
+			// A reconnecting client numbers its DataDup from the start again, which the old
+			// filter would drop as stale. It says Hello again once its tunnel is up. Safe to
+			// reset here: handshakes run on loopUDP, the only goroutine touching upSeen.
+			live.upSeen = protocol.DupFilter{}
+			live.dup.Store(false)
 			return live, true
 		}
 	}

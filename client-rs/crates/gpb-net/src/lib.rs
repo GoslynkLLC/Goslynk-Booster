@@ -45,10 +45,19 @@ mod macos;
 mod windows;
 
 #[cfg(target_os = "macos")]
-pub use macos::{default_gateway, open_tun, open_utun, MacRouteTable, MacRouteTable as PlatformRouteTable, MacUtun};
+pub use macos::{
+    default_gateway, open_tun, open_utun, prioritize_current_thread, MacRouteTable, MacRouteTable as PlatformRouteTable,
+    MacUtun,
+};
 
 #[cfg(target_os = "windows")]
-pub use windows::{default_gateway, is_elevated, open_tun, WinRouteTable, WinRouteTable as PlatformRouteTable, WinTun};
+pub use windows::{
+    default_gateway, is_elevated, open_tun, prioritize_current_thread, WinRouteTable, WinRouteTable as PlatformRouteTable,
+    WinTun,
+};
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub fn prioritize_current_thread() {}
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn open_tun(

@@ -38,6 +38,16 @@ const (
 	// or Data came from, so a Ping down a second path would drag the game's traffic onto it.
 	TypeProbe      = 0x8
 	TypeProbeReply = 0x9
+
+	// TypeHello asks the relay to carry this session's traffic as DataDup, and the relay echoes it
+	// to say yes. An older relay drops the unknown type, so the client never hears back and keeps
+	// sending plain Data: the upgrade needs no handshake change and no flag day.
+	TypeHello = 0xA
+
+	// TypeDataDup is Data with a sequence number, and every packet is sent twice. The receiver
+	// keeps the first copy and drops the second (DupFilter), so one lost copy costs nothing. It
+	// spends bandwidth - a game uses ~10 KB/s - to take out the loss bursts of a congested route.
+	TypeDataDup = 0xB
 )
 
 // Authentication modes. A relay is configured for exactly one and answers only that one.
@@ -69,10 +79,12 @@ const (
 	// version-mismatch refusal. Nothing else may use it.
 	HandshakeRespV2Len = 52
 
-	DataHeaderLen = 9
-	PingLen       = 17
-	ProbeLen      = 17
-	DisconnectLen = 9
+	DataHeaderLen    = 9
+	DataDupHeaderLen = 13 // Data header plus a 4-byte big-endian sequence number
+	PingLen          = 17
+	ProbeLen         = 17
+	DisconnectLen    = 9
+	HelloLen         = 9
 
 	// MaxPacketLen: max virtual adapter MTU of 1500 plus our header, rounded up.
 	MaxPacketLen = 2048
@@ -488,6 +500,76 @@ func DecodeData(pkt []byte) (SessionID, []byte, error) {
 		return sid, nil, ErrNotIPv4
 	}
 	return sid, payload, nil
+}
+
+// ---------------------------------------------------------- DataDup / Hello
+
+// EncodeDataDup is EncodeData with the sequence number after the session id.
+func EncodeDataDup(buf []byte, sid SessionID, seq uint32, ipPacket []byte) []byte {
+	buf[0] = header(TypeDataDup)
+	copy(buf[1:9], sid[:])
+	binary.BigEndian.PutUint32(buf[9:13], seq)
+	n := copy(buf[DataDupHeaderLen:], ipPacket)
+	return buf[:DataDupHeaderLen+n]
+}
+
+// DecodeDataDup splits out the session id, the sequence number and the payload, which aliases pkt.
+func DecodeDataDup(pkt []byte) (SessionID, uint32, []byte, error) {
+	var sid SessionID
+	if len(pkt) <= DataDupHeaderLen {
+		return sid, 0, nil, ErrShortPacket
+	}
+	copy(sid[:], pkt[1:9])
+	payload := pkt[DataDupHeaderLen:]
+	if payload[0]>>4 != 4 {
+		return sid, 0, nil, ErrNotIPv4
+	}
+	return sid, binary.BigEndian.Uint32(pkt[9:13]), payload, nil
+}
+
+func BuildHello(sid SessionID) []byte {
+	pkt := make([]byte, HelloLen)
+	pkt[0] = header(TypeHello)
+	copy(pkt[1:9], sid[:])
+	return pkt
+}
+
+// DupFilter drops the second copy of a DataDup packet. It remembers the highest sequence number
+// seen and which of the 63 before it have arrived; anything older than that window is dropped
+// too, since a packet delayed that far is useless to a game anyway. Not safe for concurrent use.
+type DupFilter struct {
+	top     uint32
+	seen    uint64
+	started bool
+}
+
+// Fresh reports whether seq has not been seen before, and records it.
+func (f *DupFilter) Fresh(seq uint32) bool {
+	if !f.started {
+		f.started, f.top, f.seen = true, seq, 1
+		return true
+	}
+	// Serial-number arithmetic, so the filter keeps working when the counter wraps.
+	d := int32(seq - f.top)
+	switch {
+	case d > 0:
+		if d >= 64 {
+			f.seen = 1
+		} else {
+			f.seen = f.seen<<uint(d) | 1
+		}
+		f.top = seq
+		return true
+	case d <= -64:
+		return false
+	default:
+		bit := uint64(1) << uint(-d)
+		if f.seen&bit != 0 {
+			return false
+		}
+		f.seen |= bit
+		return true
+	}
 }
 
 // ------------------------------------------------------------- Ping / Pong

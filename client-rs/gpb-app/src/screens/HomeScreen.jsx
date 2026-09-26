@@ -228,7 +228,11 @@ export default function HomeScreen({
               {connected ? `↑${Math.round(rates.up)} ↓${Math.round(rates.down)}` : "—"}
             </span>
             <span className="stat-sub">
-              {connected ? `gói/s · tổng ↑${status.packetsSent || 0} ↓${status.packetsReceived || 0}` : " "}
+              {!connected
+                ? " "
+                : status.redundant
+                  ? `gói/s · gửi kép, cứu ${status.rescuedPackets || 0} gói mất`
+                  : `gói/s · tổng ↑${status.packetsSent || 0} ↓${status.packetsReceived || 0}`}
             </span>
           </div>
           <div className="stat">

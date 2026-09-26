@@ -13,4 +13,4 @@ libc.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 wintun = "0.5"
-windows-sys = { version = "0.59", features = ["Win32_UI_Shell"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_Shell"] }

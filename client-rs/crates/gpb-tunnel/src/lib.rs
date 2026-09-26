@@ -4,8 +4,9 @@ pub mod clock;
 
 use gpb_net::TunDevice;
 use gpb_protocol::{
-    self as proto, build_disconnect, build_handshake_req, build_ping, try_parse_handshake_resp,
-    try_read_data, try_read_pong, write_data, ClientId, HandshakeResult, SessionId, MAX_PACKET_LEN,
+    self as proto, build_disconnect, build_handshake_req, build_hello, build_ping,
+    try_parse_handshake_resp, try_read_data, try_read_data_dup, try_read_pong, write_data,
+    write_data_dup, ClientId, DupFilter, HandshakeResult, SessionId, MAX_PACKET_LEN,
 };
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
@@ -47,6 +48,12 @@ pub struct TunnelStats {
     /// Mean deviation between consecutive samples, weight 1/16 (RFC 3550 interarrival jitter).
     pub jitter_us: AtomicU64,
     pub handshake_rtt_us: AtomicU64,
+    /// Set once the relay echoed our Hello: both directions now send every packet twice.
+    pub redundant: AtomicBool,
+    /// Distinct DataDup packets received, and second copies dropped. Their difference is how
+    /// many packets arrived only because of the other copy.
+    pub dup_packets: AtomicU64,
+    pub dup_copies: AtomicU64,
 }
 
 fn us_to_ms(us: u64) -> Option<f64> {
@@ -73,6 +80,13 @@ impl TunnelStats {
 
     pub fn handshake_rtt_ms(&self) -> Option<f64> {
         us_to_ms(self.handshake_rtt_us.load(Ordering::Relaxed))
+    }
+
+    /// Downlink packets that one copy lost and the other delivered.
+    pub fn rescued_packets(&self) -> u64 {
+        self.dup_packets
+            .load(Ordering::Relaxed)
+            .saturating_sub(self.dup_copies.load(Ordering::Relaxed))
     }
 
     /// Share of pings with no pong, as a percentage. The newest ping may still be in
@@ -243,8 +257,10 @@ pub fn start_pumps<T: TunDevice + 'static>(
     let uplink = thread::Builder::new()
         .name("gpb-uplink".into())
         .spawn(move || {
+            gpb_net::prioritize_current_thread();
             let mut pkt_buf = [0u8; MAX_PACKET_LEN];
-            let mut ip_buf = [0u8; MAX_PACKET_LEN - proto::DATA_HEADER_LEN];
+            let mut ip_buf = [0u8; MAX_PACKET_LEN - proto::DATA_DUP_HEADER_LEN];
+            let mut seq = 0u32;
             while !stop_up.load(Ordering::Relaxed) {
                 let n = match tun_up.read(&mut ip_buf) {
                     Ok(n) => n,
@@ -268,11 +284,20 @@ pub fn start_pumps<T: TunDevice + 'static>(
                 if n == 0 {
                     continue;
                 }
-                if let Ok(total) = write_data(&mut pkt_buf, &sid_up, &ip_buf[..n]) {
-                    if sock_up.send(&pkt_buf[..total]).is_ok() {
-                        stats_up.packets_sent.fetch_add(1, Ordering::Relaxed);
-                        stats_up.bytes_sent.fetch_add(n as u64, Ordering::Relaxed);
-                    }
+                let redundant = stats_up.redundant.load(Ordering::Relaxed);
+                let encoded = if redundant {
+                    seq = seq.wrapping_add(1);
+                    write_data_dup(&mut pkt_buf, &sid_up, seq, &ip_buf[..n])
+                } else {
+                    write_data(&mut pkt_buf, &sid_up, &ip_buf[..n])
+                };
+                let Ok(total) = encoded else { continue };
+                // Back to back: the second copy covers the random single drops of a busy route.
+                let first = sock_up.send(&pkt_buf[..total]).is_ok();
+                let second = redundant && sock_up.send(&pkt_buf[..total]).is_ok();
+                if first || second {
+                    stats_up.packets_sent.fetch_add(1, Ordering::Relaxed);
+                    stats_up.bytes_sent.fetch_add(n as u64, Ordering::Relaxed);
                 }
             }
         })
@@ -284,7 +309,9 @@ pub fn start_pumps<T: TunDevice + 'static>(
     let downlink = thread::Builder::new()
         .name("gpb-downlink".into())
         .spawn(move || {
+            gpb_net::prioritize_current_thread();
             let mut buf = [0u8; MAX_PACKET_LEN];
+            let mut seen = DupFilter::default();
             while !stop_down.load(Ordering::Relaxed) {
                 match sock_down.recv(&mut buf) {
                     Ok(n) if n > 0 => {
@@ -304,6 +331,30 @@ pub fn start_pumps<T: TunDevice + 'static>(
                                             .bytes_received
                                             .fetch_add(ip.len() as u64, Ordering::Relaxed);
                                     }
+                                }
+                            }
+                            proto::TYPE_DATA_DUP => {
+                                let Ok((sid, seq, ip)) = try_read_data_dup(&buf[..n]) else {
+                                    continue;
+                                };
+                                if sid != sid_down {
+                                    continue;
+                                }
+                                if !seen.fresh(seq) {
+                                    stats_down.dup_copies.fetch_add(1, Ordering::Relaxed);
+                                    continue;
+                                }
+                                stats_down.dup_packets.fetch_add(1, Ordering::Relaxed);
+                                if tun_down.write(ip).is_ok() {
+                                    stats_down.packets_received.fetch_add(1, Ordering::Relaxed);
+                                    stats_down
+                                        .bytes_received
+                                        .fetch_add(ip.len() as u64, Ordering::Relaxed);
+                                }
+                            }
+                            proto::TYPE_HELLO => {
+                                if n == proto::HELLO_LEN && buf[1..9] == sid_down {
+                                    stats_down.redundant.store(true, Ordering::Relaxed);
                                 }
                             }
                             proto::TYPE_PONG => {
@@ -341,6 +392,11 @@ pub fn start_pumps<T: TunDevice + 'static>(
                 let pkt = build_ping(&sid_keep, stamp);
                 if sock_keep.send(&pkt).is_ok() {
                     stats_keep.pings_sent.fetch_add(1, Ordering::Relaxed);
+                }
+                // Repeated until the relay echoes it; an older relay never does, and plain Data
+                // carries on.
+                if !stats_keep.redundant.load(Ordering::Relaxed) {
+                    let _ = sock_keep.send(&build_hello(&sid_keep));
                 }
                 // Sleep in small slices so shutdown is responsive.
                 let mut left = keepalive;
