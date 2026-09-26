@@ -1,6 +1,6 @@
 [package]
 name = "gpb-app"
-version = "0.1.1"
+version = "0.1.2"
 description = "Goslynk Booster desktop app"
 authors = ["Goslynk LLC"]
 edition = "2021"
@@ -23,6 +23,8 @@ gpb-protocol = { path = "../../crates/gpb-protocol" }
 gpb-profile = { path = "../../crates/gpb-profile" }
 gpb-net = { path = "../../crates/gpb-net" }
 gpb-tunnel = { path = "../../crates/gpb-tunnel" }
+tauri-plugin-updater = "2.12.0"
+tauri-plugin-process = "2.3.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

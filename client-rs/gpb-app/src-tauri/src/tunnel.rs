@@ -140,13 +140,8 @@ pub fn establish(req: &TunnelRequest) -> Result<(LiveTunnel, ConnectResult), Str
     let client_ip = Ipv4Addr::from(hs.client_ip);
     let relay_ip = Ipv4Addr::from(hs.relay_ip);
 
-    let tun = open_tun(ADAPTER_NAME, client_ip, relay_ip, hs.mtu).map_err(|e| {
-        if cfg!(target_os = "windows") {
-            format!("Không mở được TUN: {e}. Hãy mở app bằng quyền Administrator.")
-        } else {
-            format!("Không mở được TUN: {e}.")
-        }
-    })?;
+    let tun = open_tun(ADAPTER_NAME, client_ip, relay_ip, hs.mtu)
+        .map_err(|e| format!("Không mở được TUN: {e}{}", tun_hint(&e.to_string())))?;
     let tun_name = tun.name().to_string();
 
     let (phys_gw, phys_iface) = default_gateway().map_err(|e| format!("Default gateway: {e}"))?;
@@ -199,6 +194,24 @@ pub fn establish(req: &TunnelRequest) -> Result<(LiveTunnel, ConnectResult), Str
         },
         result,
     ))
+}
+
+/// Only asks for Administrator when the process really lacks it; an elevated app that
+/// still fails is blocked by something else (wintun.dll, antivirus, a stuck adapter).
+#[cfg(target_os = "windows")]
+fn tun_hint(err: &str) -> &'static str {
+    if !gpb_net::is_elevated() {
+        ". Hãy mở app bằng quyền Administrator."
+    } else if err.contains("WintunCreateAdapter") || err.contains("wintun.dll") {
+        ". Kiểm tra wintun.dll cạnh file exe và phần mềm diệt virus, hoặc khởi động lại máy."
+    } else {
+        ""
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn tun_hint(_err: &str) -> &'static str {
+    ""
 }
 
 fn explain_handshake_error(e: TunnelError) -> String {

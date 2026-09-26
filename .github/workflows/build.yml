@@ -100,13 +100,18 @@ jobs:
         working-directory: client-rs/gpb-app
         run: npm ci
 
+      # The signing key signs the updater artifacts; its public half is in tauri.conf.json.
+      # The feed is our own (update-feed below): release assets of a private repo need a token.
       - uses: tauri-apps/tauri-action@v0
         with:
           projectPath: client-rs/gpb-app
           args: ${{ matrix.args }}
           releaseId: ${{ needs.release.outputs.id }}
+          includeUpdaterJson: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -114,7 +119,10 @@ jobs:
           if-no-files-found: error
           path: |
             ${{ matrix.bundle }}/nsis/*.exe
+            ${{ matrix.bundle }}/nsis/*.exe.sig
             ${{ matrix.bundle }}/dmg/*.dmg
+            ${{ matrix.bundle }}/macos/*.app.tar.gz
+            ${{ matrix.bundle }}/macos/*.app.tar.gz.sig
 
   publish:
     name: Publish release
@@ -126,6 +134,81 @@ jobs:
         run: |
           gh api "repos/$GITHUB_REPOSITORY/releases/${{ needs.release.outputs.id }}" -X PATCH \
             -F draft=false -f make_latest=true --jq .html_url
+
+  # Installed apps poll https://74-81-54-113.sslip.io/updates/latest.json and update when its
+  # version is newer than their own, so a build only reaches users after a version bump.
+  # CI uploads through the gsbupdate account, which is SFTP-only and jailed to the feed.
+  update-feed:
+    name: Publish update feed
+    needs: [release, build, publish]
+    runs-on: ubuntu-latest
+    env:
+      FEED_URL: https://74-81-54-113.sslip.io/updates
+      FEED_HOST: gsbupdate@74.81.54.113
+      UPDATE_SSH_KEY: ${{ secrets.UPDATE_SSH_KEY }}
+      UPDATE_SSH_KNOWN_HOSTS: ${{ secrets.UPDATE_SSH_KNOWN_HOSTS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Goslynk-Booster-*
+          path: dist
+          merge-multiple: true
+
+      - name: Build latest.json
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version client-rs/gpb-app/src-tauri/tauri.conf.json)
+          win=$(find dist -name '*-setup.exe' | head -n1)
+          mac=$(find dist -name '*.app.tar.gz' | head -n1)
+          for f in "$win" "$mac"; do
+            [ -n "$f" ] && [ -f "$f.sig" ] || { echo "missing updater artifact or signature: '$f'"; exit 1; }
+          done
+          win_name="goslynk-booster_${version}_x64-setup.exe"
+          mac_name="goslynk-booster_${version}_universal.app.tar.gz"
+          mkdir -p "feed/$version"
+          cp "$win" "feed/$version/$win_name"
+          cp "$mac" "feed/$version/$mac_name"
+          jq -n \
+            --arg version "$version" \
+            --arg notes "$(git log -1 --format=%s "$GITHUB_SHA")" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg win_url "$FEED_URL/$version/$win_name" \
+            --arg mac_url "$FEED_URL/$version/$mac_name" \
+            --rawfile win_sig "$win.sig" \
+            --rawfile mac_sig "$mac.sig" \
+            '{
+              version: $version, notes: $notes, pub_date: $date,
+              platforms: {
+                "windows-x86_64": { signature: ($win_sig | rtrimstr("\n")), url: $win_url },
+                "darwin-aarch64": { signature: ($mac_sig | rtrimstr("\n")), url: $mac_url },
+                "darwin-x86_64":  { signature: ($mac_sig | rtrimstr("\n")), url: $mac_url }
+              }
+            }' > feed/latest.json
+          cat feed/latest.json
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Upload to the update server
+        run: |
+          set -euo pipefail
+          if [ -z "$UPDATE_SSH_KEY" ]; then
+            echo "UPDATE_SSH_KEY is not set; skipping the update feed."
+            exit 0
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$UPDATE_SSH_KEY" > ~/.ssh/update_key
+          chmod 600 ~/.ssh/update_key
+          printf '%s\n' "$UPDATE_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # The installers go up first so latest.json never points at a missing file.
+          sftp -i ~/.ssh/update_key -b - "$FEED_HOST" <<EOF
+          -mkdir files/$VERSION
+          put feed/$VERSION/* files/$VERSION/
+          put feed/latest.json files/latest.json.new
+          -rm files/latest.json
+          rename files/latest.json.new files/latest.json
+          EOF
+          curl -fsS "$FEED_URL/latest.json" | jq -r '"feed now at \(.version)"'
 
   discard:
     name: Discard draft

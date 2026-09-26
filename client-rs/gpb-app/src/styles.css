@@ -983,6 +983,52 @@ select:focus {
   color: #f0d9a8;
 }
 
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #2c4a3a;
+  background: #13201a;
+  color: #bfe3cf;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.update-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.update-progress {
+  display: block;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: #1f3329;
+  overflow: hidden;
+}
+
+.update-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent-hover);
+  transition: width 0.2s ease;
+}
+
+@media (max-width: 560px) {
+  .update-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 .ok {
   margin: 0;
   color: #9fdcbc;

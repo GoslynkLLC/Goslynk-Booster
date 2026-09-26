@@ -54,6 +54,25 @@ roles, locks, relay, history). To point a dev build at a local API:
 GitHub Actions builds both installers on every push to `main` (workflow **Build apps**); download
 them from the run's artifacts, or from the release when a `v*` tag is pushed.
 
+### Auto-update
+
+Installed apps check `https://74-81-54-113.sslip.io/updates/latest.json` at start and every 30
+minutes, and offer the update when its version is newer than their own. CI signs the updater
+artifacts and uploads them with `latest.json` to `/srv/goslynk-updates/files` on the VPS (SFTP
+user `gsbupdate`, jailed to that folder). To ship an update, bump the version (`VERSION`,
+`client-rs/Cargo.toml`, `src-tauri/Cargo.toml`, `tauri.conf.json`, `package.json`,
+`package-lock.json`) and push; builds that keep the version do not reach installed apps.
+
+Release builds need the updater signing key (`~/.tauri/goslynk-booster.key`, password in
+`goslynk-booster.key.password`; CI has both as secrets). Keep a backup: installed apps only accept
+updates signed by it.
+
+```bash
+TAURI_SIGNING_PRIVATE_KEY=~/.tauri/goslynk-booster.key \
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat ~/.tauri/goslynk-booster.key.password)" \
+npm run tauri:build
+```
+
 ### Profiles
 
 Game ranges live in `profiles/*.json` and are compiled into the app. To change them without

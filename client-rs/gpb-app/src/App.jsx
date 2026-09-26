@@ -14,6 +14,7 @@ import {
 } from "./api.js";
 import { defaultRegionIds } from "./games.js";
 import AppHeader from "./components/AppHeader.jsx";
+import UpdateBanner from "./components/UpdateBanner.jsx";
 import LoginScreen from "./screens/LoginScreen.jsx";
 import RegisterScreen from "./screens/RegisterScreen.jsx";
 import HomeScreen from "./screens/HomeScreen.jsx";
@@ -308,6 +309,8 @@ export default function App() {
 
   return (
     <div className={`app${screen === "admin" ? " wide" : ""}${inShell ? " shell" : ""}`}>
+      <UpdateBanner onBeforeInstall={() => apiDisconnect().catch(() => {})} />
+
       {inShell ? (
         <AppHeader
           user={user}

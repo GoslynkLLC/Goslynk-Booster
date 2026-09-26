@@ -1,7 +1,7 @@
 // Accounts API. Override for local testing: VITE_API_BASE=http://127.0.0.1:8787/api npm run dev
 const API_BASE = (import.meta.env.VITE_API_BASE || "https://74-81-54-113.sslip.io/api").replace(/\/+$/, "");
 
-function isTauri() {
+export function isTauri() {
   return typeof window !== "undefined" && !!(window.__TAURI_INTERNALS__ || window.__TAURI__);
 }
 

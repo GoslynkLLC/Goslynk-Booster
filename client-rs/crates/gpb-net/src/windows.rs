@@ -8,6 +8,11 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Whether this process holds an elevated (Administrator) token.
+pub fn is_elevated() -> bool {
+    unsafe { windows_sys::Win32::UI::Shell::IsUserAnAdmin() != 0 }
+}
+
 /// Open a Wintun adapter, assign inner IPs / MTU, start a session.
 ///
 /// Requires elevated privileges. Upstream Wintun docs and the C# client note that
@@ -17,7 +22,7 @@ use std::time::Duration;
 pub fn open_tun(
     name_hint: &str,
     client_ip: Ipv4Addr,
-    peer_ip: Ipv4Addr,
+    _peer_ip: Ipv4Addr,
     mtu: u16,
 ) -> Result<WinTun, NetError> {
     let dll = find_wintun_dll()?;
@@ -43,24 +48,50 @@ pub fn open_tun(
                     Err(e) => last = Some(e),
                 }
             }
-            created.ok_or_else(|| {
-                NetError::Msg(format!(
-                    "WintunCreateAdapter failed ({last:?}). Need LocalSystem/Admin and wintun.dll beside the exe."
-                ))
-            })?
+            created.ok_or_else(|| NetError::Msg(format!("WintunCreateAdapter failed ({last:?})")))?
         }
     };
 
-    use std::net::IpAddr;
-    adapter
-        .set_network_addresses_tuple(
-            IpAddr::V4(client_ip),
-            IpAddr::V4(Ipv4Addr::new(255, 255, 255, 0)),
-            Some(IpAddr::V4(peer_ip)),
-        )
-        .map_err(|e| NetError::Msg(format!("set adapter addresses: {e}")))?;
+    let index = adapter
+        .get_adapter_index()
+        .map_err(|e| NetError::Msg(format!("adapter index: {e}")))?;
 
-    // MTU via netsh (store=active so it dies with the adapter).
+    // netsh is addressed by interface index, not by name: the wintun crate passes
+    // `name="Goslynk Booster"`, whose quotes Rust escapes as \" and netsh rejects.
+    // No gateway either - one would add a default route through the tunnel, while only
+    // the game ranges belong there (their routes name the peer as the next hop).
+    let idx = index.to_string();
+    let address = format!("address={client_ip}");
+    let set_address = [
+        "interface",
+        "ipv4",
+        "set",
+        "address",
+        &idx,
+        "source=static",
+        &address,
+        "mask=255.255.255.0",
+        "store=active",
+    ];
+    // A freshly created adapter can take a moment before netsh sees it.
+    let mut last = None;
+    for delay_ms in [0u64, 300, 600, 1000, 1500] {
+        if delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+        }
+        match run_cmd("netsh", &set_address) {
+            Ok(()) => {
+                last = None;
+                break;
+            }
+            Err(e) => last = Some(e),
+        }
+    }
+    if let Some(e) = last {
+        return Err(NetError::Msg(format!("set adapter address: {e}")));
+    }
+
+    // store=active so the setting dies with the adapter.
     let _ = run_cmd(
         "netsh",
         &[
@@ -68,15 +99,11 @@ pub fn open_tun(
             "ipv4",
             "set",
             "subinterface",
-            name_hint,
+            &idx,
             &format!("mtu={mtu}"),
             "store=active",
         ],
     );
-
-    let index = adapter
-        .get_adapter_index()
-        .map_err(|e| NetError::Msg(format!("adapter index: {e}")))?;
 
     let session = Arc::new(
         adapter
@@ -328,10 +355,18 @@ fn cidr_to_net_mask(cidr: &str) -> Result<(Ipv4Addr, Ipv4Addr), NetError> {
 fn run_cmd(bin: &str, args: &[&str]) -> Result<(), NetError> {
     let out = Command::new(bin).args(args).output().map_err(NetError::Io)?;
     if !out.status.success() {
+        // netsh and route print their errors on stdout.
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let why = if stderr.trim().is_empty() {
+            stdout.trim()
+        } else {
+            stderr.trim()
+        };
         return Err(NetError::Msg(format!(
-            "{bin} {} failed: {}",
+            "{bin} {} failed ({}): {why}",
             args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
+            out.status
         )));
     }
     Ok(())

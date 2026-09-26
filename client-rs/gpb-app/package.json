@@ -1,7 +1,7 @@
 {
   "name": "gpb-app",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.12.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
