@@ -1,5 +1,9 @@
 name: Build apps
 
+# Every push to main (and every v* tag) builds Windows + macOS and publishes a GitHub
+# Release. The release starts as a draft so a half-finished build is never public; it is
+# published once both installers are attached, and deleted if a build fails or is cancelled.
+
 on:
   push:
     branches: [main]
@@ -14,8 +18,36 @@ permissions:
   contents: write
 
 jobs:
+  release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.create.outputs.id }}
+      tag: ${{ steps.create.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: create
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(jq -r .version client-rs/gpb-app/src-tauri/tauri.conf.json)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v${version}-build.${GITHUB_RUN_NUMBER}"
+          fi
+          notes="$(git log -1 --format='%s%n%n%b' "$GITHUB_SHA")"
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" -X POST \
+            -f tag_name="$tag" -f target_commitish="$GITHUB_SHA" \
+            -f name="Goslynk Booster $tag" -f body="$notes" \
+            -F draft=true -F prerelease=false --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.name }}
+    needs: release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -61,7 +93,7 @@ jobs:
             printf '%s' "$RELAY_LOCAL_JSON" > client-rs/gpb-app/src-tauri/relay.local.json
             echo "Default relay embedded."
           else
-            echo "::warning::Secret RELAY_LOCAL_JSON not set; players must enter the relay by hand."
+            echo "No default relay embedded; the app takes the relay from the Goslynk server after login."
           fi
 
       - name: Install frontend dependencies
@@ -72,10 +104,7 @@ jobs:
         with:
           projectPath: client-rs/gpb-app
           args: ${{ matrix.args }}
-          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && format('Goslynk Booster {0}', github.ref_name) || '' }}
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ needs.release.outputs.id }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -85,5 +114,25 @@ jobs:
           if-no-files-found: error
           path: |
             ${{ matrix.bundle }}/nsis/*.exe
-            ${{ matrix.bundle }}/msi/*.msi
             ${{ matrix.bundle }}/dmg/*.dmg
+
+  publish:
+    name: Publish release
+    needs: [release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/${{ needs.release.outputs.id }}" -X PATCH \
+            -F draft=false -f make_latest=true --jq .html_url
+
+  discard:
+    name: Discard draft
+    needs: [release, build]
+    if: ${{ always() && needs.release.result == 'success' && needs.build.result != 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api "repos/$GITHUB_REPOSITORY/releases/${{ needs.release.outputs.id }}" -X DELETE
