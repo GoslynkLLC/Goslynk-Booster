@@ -268,6 +268,7 @@ mod tests {
             ("cs2-vn.json", "cs2"),
             ("naraka-vn.json", "naraka"),
             ("deltaforce-vn.json", "deltaforce"),
+            ("steam-sg.json", "steam"),
         ] {
             let p = GameProfile::load(dir.join(file)).expect(file);
             let cidrs = p.game_cidrs(Some(game)).unwrap();

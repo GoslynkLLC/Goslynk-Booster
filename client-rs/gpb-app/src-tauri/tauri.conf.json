@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Goslynk Booster",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.goslynk.booster",
   "build": {
     "beforeDevCommand": "npm run vite",
@@ -13,9 +13,9 @@
     "windows": [
       {
         "title": "Goslynk Booster",
-        "width": 420,
-        "height": 640,
-        "minWidth": 380,
+        "width": 980,
+        "height": 720,
+        "minWidth": 420,
         "minHeight": 560,
         "resizable": true
       }

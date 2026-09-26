@@ -13,10 +13,10 @@
       "lobbyAddresses": [],
       "regions": [
         {
-          "id": "vn",
-          "name": "Việt Nam",
+          "id": "sg",
+          "name": "Singapore",
           "source": "capture:upstream-2026-09-22",
-          "note": "Server trận đấu 151.106.247.7 (UDP 7331) bắt được từ Hà Nội. Server không trả lời ping - hãy so ping trong game khi bật/tắt.",
+          "note": "From upstream GamePingBooster captures (2026-09-22, Hanoi, six sessions): every match went to 151.106.247.7 on UDP 7331, about 54 packets/s. 151.106.247.0/24 is announced by AS6507 exactly, so only that /24 is routed. The server answers no ICMP or TCP, so there is no landmark - compare ping in game with the tunnel on and off.",
           "cidrs": [
             "151.106.247.0/24"
           ]

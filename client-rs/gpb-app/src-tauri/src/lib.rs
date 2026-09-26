@@ -1,5 +1,8 @@
-//! Tauri backend: game profiles + connect / disconnect / status (PSK tunnel).
+//! Tauri backend: game profiles + boost / unboost / status (PSK tunnel).
 //! Accounts live on the Goslynk API; the webview talks to it directly.
+//!
+//! Up to `MAX_BOOSTED` games share one tunnel: boosting a game adds its server ranges to the
+//! tunnel's routes, stopping it removes them, and the tunnel closes with the last game.
 
 #[cfg(target_os = "macos")]
 mod helper;
@@ -8,9 +11,12 @@ mod tunnel;
 
 use gpb_profile::load_or_create_client_id;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 use tunnel::{ConnectResult, LiveTunnel, StatusSnapshot, TunnelRequest};
+
+const MAX_BOOSTED: usize = 3;
 
 #[cfg(target_os = "macos")]
 pub use helper::{run as run_tunnel_helper, HELPER_FLAG};
@@ -33,6 +39,14 @@ impl Live {
         }
     }
 
+    fn set_cidrs(&mut self, cidrs: &[String]) -> Result<usize, String> {
+        match self {
+            Live::InProcess(t) => t.set_cidrs(cidrs),
+            #[cfg(target_os = "macos")]
+            Live::Helper(h) => h.set_cidrs(cidrs),
+        }
+    }
+
     fn shutdown(self) {
         match self {
             Live::InProcess(t) => t.shutdown(),
@@ -42,14 +56,29 @@ impl Live {
     }
 }
 
+type GameRoutes = BTreeMap<String, Vec<String>>;
+
+struct Boosted {
+    live: Live,
+    /// Game id -> the ranges it routes; the tunnel carries their union.
+    games: GameRoutes,
+}
+
+fn union(games: &GameRoutes) -> Vec<String> {
+    let all: BTreeSet<&String> = games.values().flatten().collect();
+    all.into_iter().cloned().collect()
+}
+
 #[derive(Default)]
 pub struct AppState {
-    live: Mutex<Option<Live>>,
+    boosted: Mutex<Option<Boosted>>,
+    /// Serialises boost changes so two quick clicks never race to bring the tunnel up.
+    ops: tauri::async_runtime::Mutex<()>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ConnectArgs {
+pub struct BoostArgs {
     pub psk: String,
     pub endpoint: String,
     pub game_id: String,
@@ -77,40 +106,42 @@ fn default_relay() -> RelayDefaults {
     d
 }
 
+/// Async (like every command that may wait on the tunnel) so it never blocks the UI thread.
 #[tauri::command]
-fn get_status(state: State<'_, AppState>) -> StatusSnapshot {
-    let mut guard = state.live.lock().unwrap();
-    match guard.as_mut().and_then(Live::status) {
+async fn get_status(state: State<'_, AppState>) -> Result<StatusSnapshot, String> {
+    let mut guard = state.boosted.lock().map_err(|e| e.to_string())?;
+    let snapshot = guard.as_mut().and_then(|b| {
+        b.live.status().map(|mut s| {
+            s.games = b.games.keys().cloned().collect();
+            s
+        })
+    });
+    Ok(match snapshot {
         Some(s) => s,
         None => {
             *guard = None;
             StatusSnapshot::default()
         }
-    }
+    })
 }
 
+/// Stops every boosted game.
 #[tauri::command]
-fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
-    let mut guard = state.live.lock().map_err(|e| e.to_string())?;
-    if let Some(live) = guard.take() {
-        live.shutdown();
-    }
-    Ok(())
+async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
+    let _op = state.ops.lock().await;
+    let taken = state.boosted.lock().map_err(|e| e.to_string())?.take();
+    shutdown(taken).await
 }
 
-/// Async so the window stays responsive during the handshake and the macOS password dialog.
+/// Starts boosting a game, or re-applies its regions when it is already boosted.
+/// Returns the boosted game ids.
 #[tauri::command]
-async fn connect(
+async fn boost_game(
     app: AppHandle,
     state: State<'_, AppState>,
-    args: ConnectArgs,
-) -> Result<ConnectResult, String> {
-    if state.live.lock().map_err(|e| e.to_string())?.is_some() {
-        return Err("Đã kết nối. Hãy ngắt trước.".into());
-    }
-    if args.psk.len() < 16 {
-        return Err("PSK tối thiểu 16 ký tự.".into());
-    }
+    args: BoostArgs,
+) -> Result<Vec<String>, String> {
+    let _op = state.ops.lock().await;
 
     let (profile, _) = profiles::load(&app, &args.game_id)?;
     let cidrs = profile
@@ -122,6 +153,25 @@ async fn connect(
         );
     }
 
+    let current = state
+        .boosted
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .map(|b| b.games.clone());
+    if let Some(mut games) = current {
+        if !games.contains_key(&args.game_id) && games.len() >= MAX_BOOSTED {
+            return Err(format!(
+                "Tối đa {MAX_BOOSTED} game cùng lúc. Dừng một game ở Home trước."
+            ));
+        }
+        games.insert(args.game_id, cidrs);
+        return apply_routes(&app, games).await;
+    }
+
+    if args.psk.len() < 16 {
+        return Err("PSK tối thiểu 16 ký tự.".into());
+    }
     let data_dir = app
         .path()
         .app_data_dir()
@@ -133,23 +183,68 @@ async fn connect(
         endpoint: args.endpoint,
         psk: args.psk,
         client_id,
-        cidrs,
+        cidrs: cidrs.clone(),
         timeout_secs: args.timeout_secs.unwrap_or(8),
         // Every keepalive is also the RTT probe the UI shows, so probe once a second.
         keepalive_secs: args.keepalive_secs.unwrap_or(1),
     };
 
-    let (live, result) = tauri::async_runtime::spawn_blocking(move || bring_up(&req))
+    // Async so the window stays responsive during the handshake and the macOS password dialog.
+    let (live, _) = tauri::async_runtime::spawn_blocking(move || bring_up(&req))
         .await
         .map_err(|e| e.to_string())??;
 
-    let mut guard = state.live.lock().map_err(|e| e.to_string())?;
-    if guard.is_some() {
-        live.shutdown();
-        return Err("Đã kết nối. Hãy ngắt trước.".into());
+    let games = GameRoutes::from([(args.game_id, cidrs)]);
+    let ids = games.keys().cloned().collect();
+    *state.boosted.lock().map_err(|e| e.to_string())? = Some(Boosted { live, games });
+    Ok(ids)
+}
+
+/// Stops boosting one game; the tunnel closes when no game is left. Returns the boosted ids.
+#[tauri::command]
+async fn unboost_game(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    game_id: String,
+) -> Result<Vec<String>, String> {
+    let _op = state.ops.lock().await;
+    let (remaining, last) = {
+        let mut guard = state.boosted.lock().map_err(|e| e.to_string())?;
+        let mut games = guard.as_ref().map(|b| b.games.clone()).unwrap_or_default();
+        games.remove(&game_id);
+        let last = if games.is_empty() { guard.take() } else { None };
+        (games, last)
+    };
+    if remaining.is_empty() {
+        shutdown(last).await?;
+        return Ok(Vec::new());
     }
-    *guard = Some(live);
-    Ok(result)
+    apply_routes(&app, remaining).await
+}
+
+/// Points the running tunnel at the union of `games`' ranges. Route changes spawn `route`
+/// processes (or wait on the macOS helper), so they run off the async threads.
+async fn apply_routes(app: &AppHandle, games: GameRoutes) -> Result<Vec<String>, String> {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let mut guard = state.boosted.lock().map_err(|e| e.to_string())?;
+        let boosted = guard.as_mut().ok_or("Tunnel đã dừng, hãy boost lại.")?;
+        boosted.live.set_cidrs(&union(&games))?;
+        boosted.games = games;
+        Ok(boosted.games.keys().cloned().collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+async fn shutdown(boosted: Option<Boosted>) -> Result<(), String> {
+    let Some(b) = boosted else {
+        return Ok(());
+    };
+    tauri::async_runtime::spawn_blocking(move || b.live.shutdown())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn bring_up(req: &TunnelRequest) -> Result<(Live, ConnectResult), String> {
@@ -165,7 +260,8 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
-            connect,
+            boost_game,
+            unboost_game,
             disconnect,
             get_status,
             default_relay,

@@ -29,6 +29,7 @@ const LAUNCH_SCRIPT: &str = "on run argv\n\
 #[serde(tag = "cmd", rename_all = "camelCase")]
 enum Request {
     Connect(TunnelRequest),
+    SetRoutes { cidrs: Vec<String> },
     Status,
     Disconnect,
 }
@@ -88,6 +89,13 @@ impl HelperTunnel {
     /// `None` once the helper is gone.
     pub fn status(&mut self) -> Option<StatusSnapshot> {
         self.call(&Request::Status).ok()
+    }
+
+    pub fn set_cidrs(&mut self, cidrs: &[String]) -> Result<usize, String> {
+        self.call::<Result<usize, String>>(&Request::SetRoutes {
+            cidrs: cidrs.to_vec(),
+        })
+        .map_err(|e| format!("Helper không phản hồi: {e}"))?
     }
 
     pub fn shutdown(mut self) {
@@ -150,6 +158,7 @@ fn send<T: Serialize>(w: &mut UnixStream, msg: &T) -> std::io::Result<()> {
 /// The app only launches a helper when it holds none, so any other helper of this same binary
 /// has lost its app (older builds could hang on shutdown) and still holds a utun and routes.
 /// Killing it closes the utun, and the kernel drops the routes that pointed at it.
+/// SIGKILL, because a helper started through the password dialog can inherit SIGTERM as ignored.
 fn reap_stale_helpers() {
     let Ok(exe) = std::env::current_exe() else {
         return;
@@ -165,7 +174,7 @@ fn reap_stale_helpers() {
         };
         match pid.parse::<u32>() {
             Ok(pid) if pid != own && cmd.trim_start().starts_with(&prefix) => unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGTERM);
+                libc::kill(pid as libc::pid_t, libc::SIGKILL);
             },
             _ => {}
         }
@@ -192,7 +201,7 @@ pub fn run(socket: &Path) -> i32 {
         _ => return 2,
     };
 
-    let live = match tunnel::establish(&req) {
+    let mut live = match tunnel::establish(&req) {
         Ok((live, result)) => {
             let _ = send(&mut writer, &Ok::<_, String>(result));
             live
@@ -212,6 +221,11 @@ pub fn run(socket: &Path) -> i32 {
         match serde_json::from_str::<Request>(&line) {
             Ok(Request::Status) => {
                 if send(&mut writer, &live.status()).is_err() {
+                    break;
+                }
+            }
+            Ok(Request::SetRoutes { cidrs }) => {
+                if send(&mut writer, &live.set_cidrs(&cidrs)).is_err() {
                     break;
                 }
             }

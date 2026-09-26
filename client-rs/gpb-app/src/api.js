@@ -104,8 +104,13 @@ export function apiDefaultRelay() {
   return invoke("default_relay");
 }
 
-export function apiConnect(args) {
-  return invoke("connect", { args });
+/** Boosts a game (or re-applies its regions); resolves to the boosted game ids. */
+export function apiBoost(args) {
+  return invoke("boost_game", { args });
+}
+
+export function apiUnboost(gameId) {
+  return invoke("unboost_game", { gameId });
 }
 
 export function apiDisconnect() {

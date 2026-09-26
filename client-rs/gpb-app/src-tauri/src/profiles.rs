@@ -15,30 +15,13 @@ struct BuiltinGame {
     json: &'static str,
 }
 
+/// Listed in the order the game grid shows them.
 const BUILTIN: &[BuiltinGame] = &[
-    BuiltinGame {
-        id: "lol",
-        name_vi: "Liên Minh Huyền Thoại",
-        is_default: true,
-        json: include_str!("../../../../profiles/lol-vn.json"),
-    },
-    BuiltinGame {
-        id: "tft",
-        name_vi: "Đấu Trường Chân Lý",
-        is_default: false,
-        json: include_str!("../../../../profiles/tft-vn.json"),
-    },
     BuiltinGame {
         id: "pubg",
         name_vi: "PUBG",
         is_default: false,
         json: include_str!("../../../../profiles/pubg-vn.json"),
-    },
-    BuiltinGame {
-        id: "valorant",
-        name_vi: "VALORANT",
-        is_default: false,
-        json: include_str!("../../../../profiles/valorant-vn.json"),
     },
     BuiltinGame {
         id: "cs2",
@@ -47,16 +30,46 @@ const BUILTIN: &[BuiltinGame] = &[
         json: include_str!("../../../../profiles/cs2-vn.json"),
     },
     BuiltinGame {
-        id: "naraka",
-        name_vi: "Naraka: Bladepoint",
+        id: "valorant",
+        name_vi: "VALORANT",
         is_default: false,
-        json: include_str!("../../../../profiles/naraka-vn.json"),
+        json: include_str!("../../../../profiles/valorant-vn.json"),
+    },
+    BuiltinGame {
+        id: "tft",
+        name_vi: "Đấu Trường Chân Lý",
+        is_default: false,
+        json: include_str!("../../../../profiles/tft-vn.json"),
+    },
+    BuiltinGame {
+        id: "lol",
+        name_vi: "Liên Minh Huyền Thoại",
+        is_default: true,
+        json: include_str!("../../../../profiles/lol-vn.json"),
     },
     BuiltinGame {
         id: "deltaforce",
         name_vi: "Delta Force",
         is_default: false,
         json: include_str!("../../../../profiles/deltaforce-vn.json"),
+    },
+    BuiltinGame {
+        id: "wot",
+        name_vi: "World of Tanks",
+        is_default: false,
+        json: include_str!("../../../../profiles/wot-asia.json"),
+    },
+    BuiltinGame {
+        id: "naraka",
+        name_vi: "Naraka: Bladepoint",
+        is_default: false,
+        json: include_str!("../../../../profiles/naraka-vn.json"),
+    },
+    BuiltinGame {
+        id: "steam",
+        name_vi: "Steam",
+        is_default: false,
+        json: include_str!("../../../../profiles/steam-sg.json"),
     },
 ];
 
@@ -78,6 +91,7 @@ pub struct GameInfo {
     pub name_vi: String,
     pub is_default: bool,
     pub custom_profile: bool,
+    pub process_names: Vec<String>,
     pub regions: Vec<RegionInfo>,
 }
 
@@ -126,6 +140,7 @@ pub fn list_games(app: AppHandle) -> Result<Vec<GameInfo>, String> {
             name_vi: b.name_vi.into(),
             is_default: b.is_default,
             custom_profile: custom,
+            process_names: game.process_names.clone(),
             regions: game
                 .regions
                 .iter()

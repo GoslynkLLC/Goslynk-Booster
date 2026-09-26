@@ -5,6 +5,7 @@ use gpb_net::{default_gateway, open_tun, PlatformRouteTable, RouteTable, TunDevi
 use gpb_protocol::{ipv4_to_string, ClientId};
 use gpb_tunnel::{clock, handshake, start_pumps, TunnelError, TunnelSession};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -52,14 +53,44 @@ pub struct StatusSnapshot {
     pub handshake_rtt_ms: Option<f64>,
     pub inner_ip: Option<String>,
     pub mtu: Option<u16>,
+    /// Games whose routes go through the tunnel; filled in by the app, not the helper.
+    #[serde(default)]
+    pub games: Vec<String>,
 }
 
 pub struct LiveTunnel {
     session: TunnelSession,
     routes: PlatformRouteTable,
+    cidrs: BTreeSet<String>,
+    relay_ip: Ipv4Addr,
+    tun_name: String,
 }
 
 impl LiveTunnel {
+    /// Routes exactly `cidrs` through the tunnel, keeping the ones already installed so the
+    /// games that stay boosted never lose their path. Returns how many routes are installed.
+    pub fn set_cidrs(&mut self, cidrs: &[String]) -> Result<usize, String> {
+        let want: BTreeSet<String> = cidrs.iter().cloned().collect();
+        let gone: Vec<String> = self.cidrs.difference(&want).cloned().collect();
+        for cidr in gone {
+            let _ = self.routes.delete_cidr(&cidr);
+            self.cidrs.remove(&cidr);
+        }
+        let mut failed = 0;
+        for cidr in want.difference(&self.cidrs.clone()) {
+            match self.routes.add_cidr(cidr, self.relay_ip, &self.tun_name) {
+                Ok(()) => {
+                    self.cidrs.insert(cidr.clone());
+                }
+                Err(_) => failed += 1,
+            }
+        }
+        if failed > 0 && self.cidrs.is_empty() {
+            return Err("Không thêm được route nào qua tunnel.".into());
+        }
+        Ok(self.cidrs.len())
+    }
+
     pub fn status(&self) -> StatusSnapshot {
         let s = &self.session.stats;
         StatusSnapshot {
@@ -78,6 +109,7 @@ impl LiveTunnel {
             handshake_rtt_ms: s.handshake_rtt_ms(),
             inner_ip: Some(ipv4_to_string(&self.session.handshake.client_ip)),
             mtu: Some(self.session.handshake.mtu),
+            games: Vec::new(),
         }
     }
 
@@ -129,12 +161,13 @@ pub fn establish(req: &TunnelRequest) -> Result<(LiveTunnel, ConnectResult), Str
         .pin_host(relay_host, phys_gw, &phys_iface)
         .map_err(|e| format!("Gắn route relay: {e}"))?;
 
-    let routed = req
+    let cidrs: BTreeSet<String> = req
         .cidrs
         .iter()
         .filter(|cidr| routes.add_cidr(cidr, relay_ip, &tun_name).is_ok())
-        .count();
-    if routed == 0 {
+        .cloned()
+        .collect();
+    if cidrs.is_empty() {
         return Err("Không thêm được route nào qua tunnel.".into());
     }
 
@@ -143,8 +176,8 @@ pub fn establish(req: &TunnelRequest) -> Result<(LiveTunnel, ConnectResult), Str
         gateway_ip: ipv4_to_string(&hs.relay_ip),
         mtu: hs.mtu,
         handshake_rtt_ms: stamp.handshake_rtt_us as f64 / 1000.0,
-        tun_name,
-        routes: routed,
+        tun_name: tun_name.clone(),
+        routes: cidrs.len(),
     };
 
     let session = start_pumps(
@@ -156,7 +189,16 @@ pub fn establish(req: &TunnelRequest) -> Result<(LiveTunnel, ConnectResult), Str
     )
     .map_err(|e| format!("Start pumps: {e}"))?;
 
-    Ok((LiveTunnel { session, routes }, result))
+    Ok((
+        LiveTunnel {
+            session,
+            routes,
+            cidrs,
+            relay_ip,
+            tun_name: result.tun_name.clone(),
+        },
+        result,
+    ))
 }
 
 fn explain_handshake_error(e: TunnelError) -> String {

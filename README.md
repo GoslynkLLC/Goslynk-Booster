@@ -58,7 +58,7 @@ them from the run's artifacts, or from the release when a `v*` tag is pushed.
 
 Game ranges live in `profiles/*.json` and are compiled into the app. To change them without
 rebuilding, put a file named `<game id>.json` (`lol`, `tft`, `pubg`, `valorant`, `cs2`,
-`naraka`, `deltaforce`) in `<app data>/profiles/`:
+`naraka`, `deltaforce`, `wot`, `steam`) in `<app data>/profiles/`:
 
 - Windows: `%APPDATA%\com.goslynk.booster\profiles\`
 - macOS: `~/Library/Application Support/com.goslynk.booster/profiles/`

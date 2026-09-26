@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-09-26T00:00:00Z",
+  "note": "World of Tanks, ASIA realm. No match capture yet: worldoftanks.asia and asia.wargaming.net resolve to CDN web hosts, not game servers, so nothing is routed until ranges are captured from real battles.",
+  "games": [
+    {
+      "id": "wot",
+      "name": "World of Tanks",
+      "processNames": ["WorldOfTanks.exe"],
+      "lobbyAddresses": [],
+      "regions": [
+        {
+          "id": "asia",
+          "name": "ASIA",
+          "source": "unverified",
+          "note": "Trống. Chỉ điền sau khi bắt gói tin trận đấu ở server ASIA.",
+          "cidrs": []
+        }
+      ]
+    }
+  ],
+  "relays": [
+    {
+      "id": "sg-1",
+      "name": "Goslynk SG-1",
+      "location": "Singapore",
+      "endpoint": "74.81.54.113:51820"
+    }
+  ]
+}

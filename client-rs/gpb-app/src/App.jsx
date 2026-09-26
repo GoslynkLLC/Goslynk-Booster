@@ -1,26 +1,35 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  apiBoost,
   apiDefaultRelay,
   apiDisconnect,
+  apiGetStatus,
   apiListGames,
   apiLogout,
   apiMe,
+  apiUnboost,
   errMsg,
   isSessionRejected,
   setToken,
 } from "./api.js";
+import { defaultRegionIds } from "./games.js";
+import AppHeader from "./components/AppHeader.jsx";
 import LoginScreen from "./screens/LoginScreen.jsx";
 import RegisterScreen from "./screens/RegisterScreen.jsx";
 import HomeScreen from "./screens/HomeScreen.jsx";
-import BoostScreen from "./screens/BoostScreen.jsx";
+import GamesScreen from "./screens/GamesScreen.jsx";
 import AdminScreen from "./screens/AdminScreen.jsx";
 
 const SESSION_KEY = "gsb-session-v2";
 const RELAY_OVERRIDE_KEY = "gsb-relay-override-v1";
 const REGIONS_KEY = "gpb-regions-v2";
 const POLL_MS = 60_000;
+const STATUS_POLL_MS = 1000;
+const MAX_SLOTS = 3;
+const NOTICE_MS = 4000;
 const DEV_ROLES = ["developer", "admin"];
 const EMPTY_RELAY = { endpoint: "", psk: "" };
+const IDLE_STATUS = { connected: false, games: [] };
 
 function loadJson(key, fallback) {
   try {
@@ -35,25 +44,44 @@ function saveJson(key, value) {
   else localStorage.setItem(key, JSON.stringify(value));
 }
 
-/** Regions the profile marks as helped by its relays; the rest stay off until ticked. */
-function defaultRegionIds(game) {
-  return (game?.regions || []).filter((r) => r.cidrCount > 0 && r.defaultOn).map((r) => r.id);
-}
-
 const hasRelay = (r) => !!(r?.endpoint?.trim() && r?.psk);
 
+function without(obj, key) {
+  if (!(key in obj)) return obj;
+  const next = { ...obj };
+  delete next[key];
+  return next;
+}
+
 export default function App() {
-  const [screen, setScreen] = useState("boot"); // boot | login | register | home | boost | admin
+  const [screen, setScreen] = useState("boot"); // boot | login | register | home | games | admin
   const [user, setUser] = useState(null);
   const [developerMode, setDeveloperMode] = useState(false);
   const [serverRelay, setServerRelay] = useState(EMPTY_RELAY);
   const [buildRelay, setBuildRelay] = useState(EMPTY_RELAY);
   const [relayOverride, setRelayOverride] = useState(() => loadJson(RELAY_OVERRIDE_KEY, EMPTY_RELAY));
   const [games, setGames] = useState([]);
-  const [selectedGame, setSelectedGame] = useState(null);
   const [regions, setRegions] = useState(() => loadJson(REGIONS_KEY, {}));
   const [notice, setNotice] = useState("");
   const [bootError, setBootError] = useState("");
+
+  const [status, setStatus] = useState(IDLE_STATUS);
+  // Game ids in the order they took a slot; refs mirror state so quick clicks see the latest.
+  const [slots, setSlotsState] = useState([]);
+  const [pending, setPendingState] = useState({}); // id -> "connecting" | "stopping"
+  const [boostErrors, setBoostErrors] = useState({});
+  const [gamesNotice, setGamesNotice] = useState("");
+  const slotsRef = useRef([]);
+  const pendingRef = useRef({});
+
+  const setSlots = useCallback((next) => {
+    slotsRef.current = next;
+    setSlotsState(next);
+  }, []);
+  const setPending = useCallback((fn) => {
+    pendingRef.current = fn(pendingRef.current);
+    setPendingState(pendingRef.current);
+  }, []);
 
   const applyAuth = useCallback((data) => {
     setUser(data.user);
@@ -61,15 +89,21 @@ export default function App() {
     setServerRelay(data.relay || EMPTY_RELAY);
   }, []);
 
-  const endSession = useCallback((message = "") => {
-    apiDisconnect().catch(() => {});
-    setToken("");
-    saveJson(SESSION_KEY, null);
-    setUser(null);
-    setServerRelay(EMPTY_RELAY);
-    setNotice(message);
-    setScreen("login");
-  }, []);
+  const endSession = useCallback(
+    (message = "") => {
+      apiDisconnect().catch(() => {});
+      setToken("");
+      saveJson(SESSION_KEY, null);
+      setUser(null);
+      setServerRelay(EMPTY_RELAY);
+      setStatus(IDLE_STATUS);
+      setSlots([]);
+      setBoostErrors({});
+      setNotice(message);
+      setScreen("login");
+    },
+    [setSlots],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +112,6 @@ export default function App() {
         const [list, defaults] = await Promise.all([apiListGames(), apiDefaultRelay()]);
         if (cancelled) return;
         setGames(list);
-        setSelectedGame((prev) => prev || list.find((g) => g.isDefault) || list[0] || null);
         setBuildRelay({ endpoint: defaults.endpoint || "", psk: defaults.psk || "" });
       } catch (e) {
         if (!cancelled) setBootError(errMsg(e));
@@ -123,6 +156,31 @@ export default function App() {
     return () => clearInterval(id);
   }, [user, applyAuth, endSession]);
 
+  const refreshStatus = useCallback(async () => {
+    try {
+      const s = await apiGetStatus();
+      setStatus({ ...s, games: s.games || [] });
+      // A tunnel that outlived a webview reload still owns its games.
+      const missing = (s.games || []).filter((id) => !slotsRef.current.includes(id));
+      if (missing.length) setSlots([...slotsRef.current, ...missing]);
+    } catch {
+      /* ignore poll errors */
+    }
+  }, [setSlots]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    refreshStatus();
+    const id = setInterval(refreshStatus, STATUS_POLL_MS);
+    return () => clearInterval(id);
+  }, [user, refreshStatus]);
+
+  useEffect(() => {
+    if (!gamesNotice) return undefined;
+    const id = setTimeout(() => setGamesNotice(""), NOTICE_MS);
+    return () => clearTimeout(id);
+  }, [gamesNotice]);
+
   const onLoggedIn = useCallback(
     (data) => {
       setToken(data.token);
@@ -152,14 +210,6 @@ export default function App() {
     saveJson(RELAY_OVERRIDE_KEY, next);
   }, []);
 
-  const onRegionsChange = useCallback((gameId, ids) => {
-    setRegions((prev) => {
-      const next = { ...prev, [gameId]: ids };
-      saveJson(REGIONS_KEY, next);
-      return next;
-    });
-  }, []);
-
   const isDev = DEV_ROLES.includes(user?.role);
   const relay = useMemo(() => {
     if (isDev && hasRelay(relayOverride)) return { ...relayOverride, source: "override" };
@@ -168,8 +218,108 @@ export default function App() {
     return { ...EMPTY_RELAY, source: "none" };
   }, [isDev, relayOverride, serverRelay, buildRelay]);
 
+  const regionIdsFor = (game) =>
+    (regions[game.id] ?? defaultRegionIds(game)).filter((id) => game.regions.some((r) => r.id === id));
+
+  const boosted = status.games || [];
+  const slotState = (id) =>
+    pending[id] || (boosted.includes(id) ? "on" : boostErrors[id] ? "error" : "off");
+  const isActive = (id) => !!pendingRef.current[id] || boosted.includes(id);
+  const activeCount = slots.filter(isActive).length;
+
+  async function boostGame(game, regionIds = regionIdsFor(game)) {
+    const id = game.id;
+    if (pendingRef.current[id]) return;
+
+    let next = slotsRef.current;
+    if (!next.includes(id)) {
+      // Stopped or failed slots make room; boosted ones never get bumped.
+      while (next.length >= MAX_SLOTS) {
+        const idle = next.find((x) => !isActive(x));
+        if (!idle) {
+          setGamesNotice(`Đã đủ ${MAX_SLOTS} game đang boost. Dừng một game ở Home trước.`);
+          return;
+        }
+        next = next.filter((x) => x !== idle);
+      }
+      next = [...next, id];
+    }
+    setSlots(next);
+    setBoostErrors((e) => without(e, id));
+
+    if (relay.source === "none") {
+      setBoostErrors((e) => ({ ...e, [id]: "Máy chủ chưa cấu hình relay. Liên hệ admin Goslynk." }));
+      return;
+    }
+    setPending((p) => ({ ...p, [id]: "connecting" }));
+    try {
+      const ids = await apiBoost({
+        psk: relay.psk,
+        endpoint: relay.endpoint.trim(),
+        gameId: id,
+        regionIds,
+      });
+      setStatus((s) => ({ ...s, games: ids }));
+    } catch (e) {
+      setBoostErrors((er) => ({ ...er, [id]: errMsg(e) }));
+    } finally {
+      setPending((p) => without(p, id));
+      refreshStatus();
+    }
+  }
+
+  async function stopGame(game) {
+    const id = game.id;
+    if (pendingRef.current[id]) return;
+    setPending((p) => ({ ...p, [id]: "stopping" }));
+    try {
+      const ids = await apiUnboost(id);
+      setStatus((s) => (ids.length ? { ...s, games: ids } : IDLE_STATUS));
+      setSlots(slotsRef.current.filter((x) => x !== id));
+      setBoostErrors((e) => without(e, id));
+    } catch (e) {
+      setBoostErrors((er) => ({ ...er, [id]: errMsg(e) }));
+    } finally {
+      setPending((p) => without(p, id));
+      refreshStatus();
+    }
+  }
+
+  function removeSlot(game) {
+    setSlots(slotsRef.current.filter((x) => x !== game.id));
+    setBoostErrors((e) => without(e, game.id));
+  }
+
+  function onRegionsChange(game, ids) {
+    setRegions((prev) => {
+      const next = { ...prev, [game.id]: ids };
+      saveJson(REGIONS_KEY, next);
+      return next;
+    });
+    if (boosted.includes(game.id)) boostGame(game, ids);
+  }
+
+  function onPick(game) {
+    if (slotState(game.id) === "on") setScreen("home");
+    else boostGame(game);
+  }
+
+  const inShell = (screen === "home" || screen === "games") && user;
+
   return (
-    <div className={`app${screen === "admin" ? " wide" : ""}`}>
+    <div className={`app${screen === "admin" ? " wide" : ""}${inShell ? " shell" : ""}`}>
+      {inShell ? (
+        <AppHeader
+          user={user}
+          tab={screen}
+          onTab={setScreen}
+          boostedCount={boosted.length}
+          maxSlots={MAX_SLOTS}
+          onAdmin={user.role === "admin" ? () => setScreen("admin") : null}
+          onLogout={onLogout}
+        />
+      ) : null}
+
       {bootError && screen !== "login" && screen !== "register" ? <p className="error">{bootError}</p> : null}
 
       {screen === "boot" && <p className="hint muted">Đang kiểm tra phiên đăng nhập…</p>}
@@ -191,29 +341,34 @@ export default function App() {
 
       {screen === "home" && user && (
         <HomeScreen
-          user={user}
           developerMode={developerMode}
           games={games}
-          selected={selectedGame}
-          onSelect={setSelectedGame}
-          onLogout={onLogout}
-          onAdmin={user.role === "admin" ? () => setScreen("admin") : null}
-          onBoost={() => selectedGame && setScreen("boost")}
-        />
-      )}
-
-      {screen === "boost" && user && selectedGame && (
-        <BoostScreen
-          game={selectedGame}
-          regionIds={(regions[selectedGame.id] ?? defaultRegionIds(selectedGame)).filter((id) =>
-            selectedGame.regions.some((r) => r.id === id),
-          )}
-          onRegionsChange={(ids) => onRegionsChange(selectedGame.id, ids)}
+          slots={slots}
+          maxSlots={MAX_SLOTS}
+          slotState={slotState}
+          errors={boostErrors}
+          status={status}
+          regionIdsFor={regionIdsFor}
+          onRegionsChange={onRegionsChange}
+          onStop={stopGame}
+          onRetry={(g) => boostGame(g)}
+          onRemove={removeSlot}
+          onPickGames={() => setScreen("games")}
           relay={relay}
           canEditRelay={isDev}
           relayOverride={relayOverride}
           onRelayOverrideChange={onRelayOverrideChange}
-          onBack={() => setScreen("home")}
+        />
+      )}
+
+      {screen === "games" && user && (
+        <GamesScreen
+          games={games}
+          slotState={slotState}
+          errors={boostErrors}
+          full={activeCount >= MAX_SLOTS}
+          notice={gamesNotice}
+          onPick={onPick}
         />
       )}
 

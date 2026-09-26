@@ -1,6 +1,6 @@
 [package]
 name = "gpb-app"
-version = "0.1.0"
+version = "0.1.1"
 description = "Goslynk Booster desktop app"
 authors = ["Goslynk LLC"]
 edition = "2021"
