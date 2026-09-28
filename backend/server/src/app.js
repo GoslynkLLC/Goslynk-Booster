@@ -74,7 +74,7 @@ export function createApp() {
       res.set("Access-Control-Allow-Origin", origin);
       res.set("Vary", "Origin");
       res.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-Token");
-      res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
       res.set("Access-Control-Max-Age", "600");
     }
     res.set("Cache-Control", "no-store");
@@ -207,6 +207,88 @@ export function createApp() {
     const token = bearer(req);
     if (token) await run("DELETE FROM gsb_sessions WHERE token_hash = ?", [sha256(token)]);
     res.json({ ok: true });
+  });
+
+  // User Redeem Code endpoint (Ring-0 HWID Anti-Clone)
+  api.post("/redeem", async (req, res) => {
+    const user = await auth(req);
+    const body = req.body ?? {};
+    const rawCode = str(body, "code", 64);
+    const hwidHash = str(body, "hwidHash", 128);
+
+    if (!rawCode) fail("Vui lòng nhập mã quà tặng.", 400, "missing_code");
+    if (!hwidHash) fail("Thiếu mã định danh thiết bị HWID.", 400, "missing_hwid");
+
+    const codeClean = rawCode.trim().toUpperCase();
+
+    // 1. Kiểm tra mã quà tặng trong database
+    const redeem = await one("SELECT * FROM gsb_redeem_codes WHERE code = ?", [codeClean]);
+    if (!redeem) fail("Mã quà tặng không hợp lệ hoặc không tồn tại.", 404, "invalid_code");
+    if (redeem.is_active === 0) fail("Mã quà tặng này đã bị vô hiệu hóa.", 400, "code_disabled");
+
+    // 2. Kiểm tra hạn sử dụng
+    if (redeem.expires_at) {
+      const expTime = new Date(redeem.expires_at).getTime();
+      if (Number.isFinite(expTime) && expTime < Date.now()) {
+        fail("Mã quà tặng này đã hết hạn sử dụng.", 400, "code_expired");
+      }
+    }
+
+    // 3. Kiểm tra số lượt dùng tối đa toàn hệ thống
+    if (redeem.max_uses > 0 && redeem.used_count >= redeem.max_uses) {
+      fail("Mã quà tặng này đã hết lượt sử dụng.", 400, "code_limit_reached");
+    }
+
+    // 4. Kiểm tra chống Clone bằng HWID Ring-0 (1 HWID chỉ được dùng 1 mã code 1 lần)
+    const alreadyRedeemed = await one(
+      "SELECT id FROM gsb_hwid_redeems WHERE code_id = ? AND hwid_hash = ? LIMIT 1",
+      [redeem.id, hwidHash]
+    );
+    if (alreadyRedeemed) {
+      fail("Bạn đã nhận quà từ mã này rồi.", 409, "hwid_already_used");
+    }
+
+    // 5. Cập nhật số lượt dùng & Lưu vết HWID
+    try {
+      await run("UPDATE gsb_redeem_codes SET used_count = used_count + 1 WHERE id = ?", [redeem.id]);
+      await run(
+        "INSERT INTO gsb_hwid_redeems (code_id, user_id, hwid_hash, ip) VALUES (?, ?, ?, ?)",
+        [redeem.id, user.id, hwidHash, req.ip]
+      );
+    } catch (e) {
+      if (e.code === "ER_DUP_ENTRY") {
+        fail("Bạn đã nhận quà từ mã này rồi.", 409, "hwid_already_used");
+      }
+      throw e;
+    }
+
+    // 6. Tính toán & Cộng ngày VIP cho User
+    let newVipUntil;
+    if (redeem.reward_type === "vip_days") {
+      const daysToAdd = Number(redeem.reward_value) || 0;
+      const now = new Date();
+      const currentVip = user.vip_until ? new Date(user.vip_until) : null;
+
+      let baseDate = now;
+      if (currentVip && currentVip.getTime() > now.getTime()) {
+        baseDate = currentVip; // Nếu đang còn VIP thì cộng nối tiếp
+      }
+
+      baseDate.setDate(baseDate.getDate() + daysToAdd);
+      newVipUntil = baseDate;
+
+      await run("UPDATE gsb_users SET vip_until = ? WHERE id = ?", [newVipUntil, user.id]);
+    }
+
+    await audit(user.id, "redeem_code", codeClean, `+${redeem.reward_value} ${redeem.reward_type}`, req.ip);
+
+    res.json({
+      ok: true,
+      message: `Nhận quà thành công! Bạn được cộng +${redeem.reward_value} ngày VIP.`,
+      rewardType: redeem.reward_type,
+      rewardValue: redeem.reward_value,
+      vipUntil: newVipUntil ? newVipUntil.toISOString() : user.vip_until,
+    });
   });
 
   // ---------------------------------------------------------------- admin
@@ -345,7 +427,99 @@ export function createApp() {
       })),
     });
   });
+  // ---------------------------------------------------------------- Admin Redeem Codes API
 
+  // 1. Lấy danh sách tất cả các mã quà tặng (Khả dụng lên đầu, Hết hạn/Khóa xuống dưới)
+  admin.get("/redeems", async (req, res) => {
+    const rows = await all(
+      `SELECT id, code, reward_type, reward_value, max_uses, used_count, expires_at, is_active, created_at 
+         FROM gsb_redeem_codes 
+        ORDER BY 
+          is_active DESC,
+          (CASE WHEN expires_at IS NOT NULL AND expires_at < NOW() THEN 1 ELSE 0 END) ASC,
+          id DESC`
+    );
+    res.json({ ok: true, codes: rows });
+  });
+
+  // 2. Tạo mã quà tặng mới
+  admin.post("/redeems", async (req, res) => {
+    const body = req.body || {};
+    const code = str(body, "code", 64).toUpperCase();
+    if (!code || !/^[A-Z0-9_.]{3,64}$/.test(code)) {
+      fail("Mã code không hợp lệ (chỉ gồm chữ cái, số, từ 3-64 ký tự).", 422, "invalid_code");
+    }
+
+    const rewardType = body.rewardType === "role" ? "role" : "vip_days";
+    const rewardValue = Math.max(1, Number.parseInt(body.rewardValue, 10) || 7);
+    const maxUses = Math.max(0, Number.parseInt(body.maxUses, 10) || 0);
+    const expiresAt = body.expiresAt ? str(body, "expiresAt", 32) : null;
+
+    if (expiresAt) {
+      const expDate = new Date(`${expiresAt}T23:59:59`);
+      if (Number.isNaN(expDate.getTime())) {
+        fail("Ngày hết hạn không hợp lệ.", 422, "invalid_expires_at");
+      }
+      if (expDate < new Date()) {
+        fail("Ngày hết hạn không được ở trong quá khứ.", 422, "past_expires_at");
+      }
+    }
+
+    // Kiểm tra trùng mã code
+    const existing = await one("SELECT id FROM gsb_redeem_codes WHERE code = ?", [code]);
+    if (existing) fail("Mã code này đã tồn tại trong hệ thống.", 409, "code_exists");
+
+    await run(
+      `INSERT INTO gsb_redeem_codes (code, reward_type, reward_value, max_uses, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [code, rewardType, rewardValue, maxUses, expiresAt ? `${expiresAt} 23:59:59` : null]
+    );
+
+    await audit(req.admin.id, "create_redeem_code", code, `+${rewardValue} ${rewardType}`, req.ip);
+    res.json({ ok: true, message: "Tạo mã quà tặng thành công!" });
+  });
+
+  // 3. Chỉnh sửa mã quà tặng (Update)
+  admin.put("/redeems/:id", async (req, res) => {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!id) fail("ID mã code không hợp lệ.", 400, "invalid_id");
+
+    const existing = await one("SELECT * FROM gsb_redeem_codes WHERE id = ?", [id]);
+    if (!existing) fail("Không tìm thấy mã quà tặng này.", 404, "not_found");
+
+    const body = req.body || {};
+    const rewardValue = Math.max(1, Number.parseInt(body.rewardValue, 10) || existing.reward_value);
+    const maxUses = Math.max(0, Number.parseInt(body.maxUses, 10) ?? existing.max_uses);
+    const expiresAt = body.expiresAt ? String(body.expiresAt).trim() : null;
+    const isActive = body.isActive !== undefined ? (body.isActive ? 1 : 0) : existing.is_active;
+
+    await run(
+      `UPDATE gsb_redeem_codes 
+       SET reward_value = ?, max_uses = ?, expires_at = ?, is_active = ? 
+       WHERE id = ?`,
+      [rewardValue, maxUses, expiresAt ? `${expiresAt} 23:59:59` : null, isActive, id]
+    );
+
+    await audit(req.admin.id, "update_redeem_code", existing.code, `+${rewardValue} VIP, max=${maxUses}`, req.ip);
+
+    res.json({ ok: true, message: "Cập nhật mã quà tặng thành công!" });
+  });
+
+  // 4. Vô hiệu hóa / Bật lại mã quà tặng (Soft Delete)
+  admin.delete("/redeems/:id", async (req, res) => {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!id) fail("ID mã code không hợp lệ.", 400, "invalid_id");
+
+    const existing = await one("SELECT code, is_active FROM gsb_redeem_codes WHERE id = ?", [id]);
+    if (!existing) fail("Không tìm thấy mã code này.", 404, "not_found");
+
+    const nextState = existing.is_active === 1 ? 0 : 1;
+    await run("UPDATE gsb_redeem_codes SET is_active = ? WHERE id = ?", [nextState, id]);
+    await audit(req.admin.id, nextState === 0 ? "disable_redeem_code" : "enable_redeem_code", existing.code, "", req.ip);
+
+    res.json({ ok: true, message: nextState === 0 ? "Đã vô hiệu hóa mã." : "Đã bật lại mã." });
+  });
+  // ---------------------------------------------------------------------------
   api.use("/admin", admin);
 
   api.use((req, res) => {
@@ -380,6 +554,15 @@ export function createApp() {
 export async function cleanupExpired() {
   await run("DELETE FROM gsb_sessions WHERE expires_at < NOW()");
   await run("DELETE FROM gsb_login_attempts WHERE created_at < DATE_SUB(NOW(), INTERVAL 1 DAY)");
+}
+
+export async function ensureMigrations() {
+  try {
+    await run("ALTER TABLE `gsb_users` ADD COLUMN `vip_until` DATETIME NULL DEFAULT NULL AFTER `role`");
+    console.log("[Migration] Added vip_until column to gsb_users.");
+  } catch (e) {
+    // Tự động bỏ qua nếu cột đã tồn tại (ER_DUP_FIELDNAME / 1060)
+  }
 }
 
 export { pool };
