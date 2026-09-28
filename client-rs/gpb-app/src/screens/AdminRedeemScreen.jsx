@@ -1,369 +1,226 @@
-import { useEffect, useState } from "react";
-import { adminRedeemApi, errMsg } from "../api.js";
+import { useCallback, useEffect, useState } from "react";
+import { adminRedeemApi, errMsg, isSessionRejected } from "../api.js";
 
-export default function AdminRedeemScreen({ onBack }) {
-    const [codes, setCodes] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
+/** "2026-10-05 23:59:59" (server time) as "05/10/2026". */
+const shortDate = (s) => s.slice(0, 10).split("-").reverse().join("/");
 
-    // Create Modal state
-    const [showCreateModal, setShowCreateModal] = useState(false);
-    const [newCode, setNewCode] = useState("");
-    const [rewardValue, setRewardValue] = useState(7);
-    const [maxUses, setMaxUses] = useState(0);
-    const [expiresAt, setExpiresAt] = useState("");
-    const [creating, setCreating] = useState(false);
+export default function AdminRedeemScreen({ onSessionRejected, onBack }) {
+  const [codes, setCodes] = useState(null);
+  const [error, setError] = useState("");
+  // null: no dialog, {}: create, a code: edit it.
+  const [editing, setEditing] = useState(null);
 
-    // Edit Modal state
-    const [editingCode, setEditingCode] = useState(null);
-    const [editRewardValue, setEditRewardValue] = useState(7);
-    const [editMaxUses, setEditMaxUses] = useState(0);
-    const [editExpiresAt, setEditExpiresAt] = useState("");
-    const [editIsActive, setEditIsActive] = useState(1);
-    const [updating, setUpdating] = useState(false);
+  const guard = useCallback(
+    (e) => {
+      if (isSessionRejected(e) || e?.code === "forbidden") onSessionRejected(e.message);
+      else setError(errMsg(e));
+    },
+    [onSessionRejected],
+  );
 
-    useEffect(() => {
-        loadData();
-    }, []);
+  const load = useCallback(() => {
+    adminRedeemApi
+      .list()
+      .then((r) => {
+        setCodes(r.codes);
+        setError("");
+      })
+      .catch(guard);
+  }, [guard]);
 
-    async function loadData() {
-        try {
-            const res = await adminRedeemApi.list();
-            if (res && res.codes) {
-                const sorted = [...res.codes].sort((a, b) => {
-                    const aExpired = a.expires_at && new Date(a.expires_at).getTime() < Date.now() ? 1 : 0;
-                    const bExpired = b.expires_at && new Date(b.expires_at).getTime() < Date.now() ? 1 : 0;
-                    if (a.is_active !== b.is_active) return b.is_active - a.is_active;
-                    if (aExpired !== bExpired) return aExpired - bExpired;
-                    return b.id - a.id;
-                });
-                setCodes(sorted);
-            }
-        } catch (e) {
-            // Khi dùng mock UI giữ nguyên mock data
-        }
+  useEffect(load, [load]);
+
+  async function toggle(c) {
+    try {
+      await adminRedeemApi.toggle(c.id);
+      load();
+    } catch (e) {
+      guard(e);
     }
+  }
 
-    async function handleCreateCode(e) {
-        e.preventDefault();
-        const clean = newCode.trim().toUpperCase();
-        if (!clean) return;
+  return (
+    <section className="screen">
+      <header className="brand row">
+        <div>
+          <h1>Mã quà tặng</h1>
+          <p className="tag">Mỗi mã cộng ngày VIP, nhận được một lần trên mỗi tài khoản và mỗi máy</p>
+        </div>
+        <div className="row-actions">
+          <button type="button" className="btn primary sm" onClick={() => setEditing({})}>
+            Tạo mã
+          </button>
+          <button type="button" className="btn ghost sm" onClick={onBack}>
+            Menu
+          </button>
+        </div>
+      </header>
 
-        setCreating(true);
-        try {
-            await adminRedeemApi.create({
-                code: clean,
-                rewardType: "vip_days",
-                rewardValue: Number(rewardValue),
-                maxUses: Number(maxUses),
-                expiresAt: expiresAt || null,
-            });
-            setNewCode("");
-            setExpiresAt("");
-            setShowCreateModal(false);
-            loadData();
-        } catch (e) {
-            alert(errMsg(e));
-        } finally {
-            setCreating(false);
-        }
-    }
+      {error ? <p className="modal-message error">{error}</p> : null}
 
-    function openEditModal(item) {
-        setEditingCode(item);
-        setEditRewardValue(item.reward_value);
-        setEditMaxUses(item.max_uses);
-        setEditExpiresAt(item.expires_at ? item.expires_at.split("T")[0] : "");
-        setEditIsActive(item.is_active);
-    }
-
-    async function handleUpdateCode(e) {
-        e.preventDefault();
-        if (!editingCode) return;
-
-        setUpdating(true);
-        try {
-            await adminRedeemApi.update(editingCode.id, {
-                rewardValue: Number(editRewardValue),
-                maxUses: Number(editMaxUses),
-                expiresAt: editExpiresAt || null,
-                isActive: Number(editIsActive),
-            });
-            setEditingCode(null);
-            loadData();
-        } catch (e) {
-            alert(errMsg(e));
-        } finally {
-            setUpdating(false);
-        }
-    }
-
-    async function handleDeleteCode(id) {
-        if (!confirm("Bạn có chắc chắn muốn thay đổi trạng thái (Khóa / Mở) mã code này?")) return;
-        try {
-            await adminRedeemApi.delete(id);
-            loadData();
-        } catch (e) {
-            alert(errMsg(e));
-        }
-    }
-
-    return (
-        <section className="screen wide">
-            <div className="page-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                    <h1 className="page-title">Quản lý Mã Quà Tặng (Redeem Codes)</h1>
-                    <p className="tag">Tạo mã quà tặng mới và quản lý lượt sử dụng theo HWID máy tính</p>
-                </div>
-                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                    <button type="button" className="btn primary" onClick={() => setShowCreateModal(true)} style={{ padding: "8px 16px", fontWeight: "600" }}>
-                        + Tạo Mã Mới
+      <div className="stats">
+        {codes === null ? (
+          <p className="muted">Đang tải…</p>
+        ) : codes.length === 0 ? (
+          <p className="muted">Chưa có mã nào. Bấm "Tạo mã" để tạo.</p>
+        ) : (
+          <table className="redeem-table">
+            <thead>
+              <tr>
+                <th>Mã</th>
+                <th>Quà</th>
+                <th>Đã dùng</th>
+                <th>Hết hạn</th>
+                <th>Trạng thái</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {codes.map((c) => (
+                <tr key={c.id} className={c.isActive && !c.expired ? "" : "off"}>
+                  <td>
+                    <button type="button" className="code-link" onClick={() => setEditing(c)} title="Sửa mã">
+                      {c.code}
                     </button>
-                    <button type="button" className="btn ghost" onClick={onBack}>
-                        ← Quay lại Trang chủ
-                    </button>
-                </div>
-            </div>
-
-            {/* BẢNG DANH SÁCH MÃ CODE */}
-            <div className="stats" style={{ marginTop: "20px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                    <p className="section-title" style={{ margin: 0 }}>📋 Danh sách Mã hiện có trong hệ thống</p>
-                    <span style={{ fontSize: "12px", color: "var(--muted)" }}>Tổng số: <strong>{codes.length}</strong> mã</span>
-                </div>
-
-                <div style={{ overflowX: "auto" }}>
-                    <table className="admin-table" style={{ width: "100%", borderCollapse: "collapse" }}>
-                        <thead>
-                            <tr style={{ textAlign: "left", borderBottom: "1px solid var(--line)" }}>
-                                <th style={{ padding: "12px" }}>Mã Code</th>
-                                <th style={{ padding: "12px" }}>Phần thưởng</th>
-                                <th style={{ padding: "12px" }}>Đã dùng / Tối đa</th>
-                                <th style={{ padding: "12px" }}>Hạn sử dụng</th>
-                                <th style={{ padding: "12px" }}>Trạng thái</th>
-                                <th style={{ padding: "12px", textAlign: "right" }}>Thao tác</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {codes.length === 0 ? (
-                                <tr>
-                                    <td colSpan={6} style={{ padding: "20px", textAlign: "center" }} className="muted">
-                                        Chưa có mã quà tặng nào. Bấm nút <strong>"+ Tạo Mã Mới"</strong> ở góc trên để tạo.
-                                    </td>
-                                </tr>
-                            ) : (
-                                codes.map((item) => {
-                                    const isExpired = item.expires_at && new Date(item.expires_at).getTime() < Date.now();
-                                    return (
-                                        <tr key={item.id} style={{ borderBottom: "1px solid var(--line)", opacity: item.is_active === 0 || isExpired ? 0.6 : 1 }}>
-                                            <td style={{ padding: "12px" }}>
-                                                <strong
-                                                    onClick={() => openEditModal(item)}
-                                                    style={{
-                                                        color: item.is_active === 0 || isExpired ? "var(--muted)" : "var(--accent)",
-                                                        fontSize: "1.05rem",
-                                                        cursor: "pointer",
-                                                        textDecoration: "underline"
-                                                    }}
-                                                    title="Bấm để chỉnh sửa mã này"
-                                                >
-                                                    {item.code}
-                                                </strong>
-                                            </td>
-                                            <td style={{ padding: "12px" }}>+{item.reward_value} ngày VIP</td>
-                                            <td style={{ padding: "12px" }}>
-                                                {item.used_count} / {item.max_uses === 0 ? "Vô hạn" : item.max_uses}
-                                            </td>
-                                            <td style={{ padding: "12px" }} className="muted">
-                                                {item.expires_at ? new Date(item.expires_at).toLocaleDateString() : "Vĩnh viễn"}
-                                            </td>
-                                            <td style={{ padding: "12px" }}>
-                                                {isExpired ? (
-                                                    <span style={{ color: "#e67e22", fontSize: "12px", background: "rgba(230,126,34,0.15)", padding: "2px 8px", borderRadius: "4px" }}>Đã hết hạn</span>
-                                                ) : item.is_active === 1 ? (
-                                                    <span style={{ color: "#2ecc71", fontSize: "12px", background: "rgba(46,204,113,0.15)", padding: "2px 8px", borderRadius: "4px" }}>Đang mở</span>
-                                                ) : (
-                                                    <span style={{ color: "#e74c3c", fontSize: "12px", background: "rgba(231,76,60,0.15)", padding: "2px 8px", borderRadius: "4px" }}>Đã khóa</span>
-                                                )}
-                                            </td>
-                                            <td style={{ padding: "12px", textAlign: "right" }}>
-                                                <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
-                                                    {/* 1. Nút Chỉnh sửa (Icon chì ✏️) */}
-                                                    <button
-                                                        type="button"
-                                                        className="btn ghost sm"
-                                                        onClick={() => openEditModal(item)}
-                                                        title="Chỉnh sửa mã code"
-                                                        style={{ padding: "4px 8px", fontSize: "14px" }}
-                                                    >
-                                                        ✏️
-                                                    </button>
-                                                    {/* 2. Nút Khóa / Mở (Icon ✕ hoặc 🔓) */}
-                                                    <button
-                                                        type="button"
-                                                        className={`btn ${item.is_active === 1 ? "err" : "ghost"} sm`}
-                                                        onClick={() => handleDeleteCode(item.id)}
-                                                        title={item.is_active === 1 ? "Vô hiệu hóa mã code" : "Kích hoạt lại mã code"}
-                                                        style={{ padding: "4px 8px", fontSize: "14px" }}
-                                                    >
-                                                        {item.is_active === 1 ? "✕" : "🔓"}
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {/* POPUP MODAL TẠO MÃ CODE MỚI */}
-            {showCreateModal && (
-                <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
-                    <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "480px" }}>
-                        <div className="modal-header">
-                            <h3>➕ Tạo Mã Quà Tặng Mới</h3>
-                            <button type="button" className="modal-close" onClick={() => setShowCreateModal(false)}>×</button>
-                        </div>
-
-                        <form onSubmit={handleCreateCode} className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                            <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: "500" }}>Mã Code:</span>
-                                <input
-                                    type="text"
-                                    placeholder="Nhập code (VD: GOSLYNK2026)"
-                                    value={newCode}
-                                    onChange={(e) => setNewCode(e.target.value)}
-                                    style={{ textTransform: "uppercase", fontWeight: "bold", padding: "10px" }}
-                                    autoFocus
-                                />
-                            </label>
-
-                            <div style={{ display: "flex", gap: "12px" }}>
-                                <label style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
-                                    <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: "500" }}>Số ngày VIP:</span>
-                                    <input
-                                        type="number"
-                                        placeholder="7"
-                                        value={rewardValue}
-                                        onChange={(e) => setRewardValue(e.target.value)}
-                                        style={{ padding: "10px" }}
-                                    />
-                                </label>
-
-                                <label style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
-                                    <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: "500" }}>Lượt dùng (0 = Vô hạn):</span>
-                                    <input
-                                        type="number"
-                                        placeholder="0"
-                                        value={maxUses}
-                                        onChange={(e) => setMaxUses(e.target.value)}
-                                        style={{ padding: "10px" }}
-                                    />
-                                </label>
-                            </div>
-
-                            <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: "500" }}>Hạn sử dụng (Để trống = Vĩnh viễn):</span>
-                                <input
-                                    type="date"
-                                    value={expiresAt}
-                                    onChange={(e) => setExpiresAt(e.target.value)}
-                                    style={{ padding: "10px" }}
-                                />
-                            </label>
-
-                            <div className="modal-actions" style={{ marginTop: "10px", display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-                                <button type="button" className="btn ghost" onClick={() => setShowCreateModal(false)}>
-                                    Hủy
-                                </button>
-                                <button type="submit" className="btn primary" disabled={creating || !newCode.trim()}>
-                                    {creating ? "Đang tạo…" : "+ Tạo Mã"}
-                                </button>
-                            </div>
-                        </form>
+                  </td>
+                  <td>+{c.rewardValue} ngày VIP</td>
+                  <td>
+                    {c.usedCount} / {c.maxUses === 0 ? "∞" : c.maxUses}
+                  </td>
+                  <td className="muted">{c.expiresAt ? shortDate(c.expiresAt) : "Không"}</td>
+                  <td>
+                    {c.expired ? (
+                      <span className="pill expired">Hết hạn</span>
+                    ) : c.isActive ? (
+                      <span className="pill on">Đang mở</span>
+                    ) : (
+                      <span className="pill off">Đã khóa</span>
+                    )}
+                  </td>
+                  <td>
+                    <div className="actions">
+                      <button type="button" className="btn ghost sm" onClick={() => setEditing(c)}>
+                        Sửa
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn ghost sm${c.isActive ? " danger-text" : ""}`}
+                        onClick={() => toggle(c)}
+                      >
+                        {c.isActive ? "Khóa" : "Mở"}
+                      </button>
                     </div>
-                </div>
-            )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
-            {/* POPUP MODAL CHỈNH SỬA MÃ CODE */}
-            {editingCode && (
-                <div className="modal-overlay" onClick={() => setEditingCode(null)}>
-                    <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "480px" }}>
-                        <div className="modal-header">
-                            <h3>✏️ Chỉnh sửa Mã: <span style={{ color: "var(--accent)" }}>{editingCode.code}</span></h3>
-                            <button type="button" className="modal-close" onClick={() => setEditingCode(null)}>×</button>
-                        </div>
+      {editing ? (
+        <CodeDialog
+          code={editing.id ? editing : null}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
+          onSessionRejected={onSessionRejected}
+        />
+      ) : null}
+    </section>
+  );
+}
 
-                        <form onSubmit={handleUpdateCode} className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                            <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: "500" }}>Mã Code (Cố định):</span>
-                                <input
-                                    type="text"
-                                    value={editingCode.code}
-                                    disabled
-                                    style={{ textTransform: "uppercase", fontWeight: "bold", padding: "10px", opacity: 0.6, background: "rgba(255,255,255,0.05)" }}
-                                />
-                            </label>
+function CodeDialog({ code, onClose, onSaved, onSessionRejected }) {
+  const [name, setName] = useState(code?.code ?? "");
+  const [days, setDays] = useState(String(code?.rewardValue ?? 7));
+  const [maxUses, setMaxUses] = useState(String(code?.maxUses ?? 0));
+  const [expiresAt, setExpiresAt] = useState(code?.expiresAt ? code.expiresAt.slice(0, 10) : "");
+  const [active, setActive] = useState(code?.isActive ?? true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-                            <div style={{ display: "flex", gap: "12px" }}>
-                                <label style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
-                                    <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: "500" }}>Số ngày VIP:</span>
-                                    <input
-                                        type="number"
-                                        value={editRewardValue}
-                                        onChange={(e) => setEditRewardValue(e.target.value)}
-                                        style={{ padding: "10px" }}
-                                    />
-                                </label>
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const body = { rewardValue: Number(days), maxUses: Number(maxUses), expiresAt: expiresAt || null };
+    try {
+      if (code) await adminRedeemApi.update(code.id, { ...body, isActive: active });
+      else await adminRedeemApi.create({ ...body, code: name.trim().toUpperCase() });
+      onSaved();
+    } catch (err) {
+      if (isSessionRejected(err) || err?.code === "forbidden") onSessionRejected(err.message);
+      else setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  }
 
-                                <label style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
-                                    <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: "500" }}>Lượt dùng (0 = Vô hạn):</span>
-                                    <input
-                                        type="number"
-                                        value={editMaxUses}
-                                        onChange={(e) => setEditMaxUses(e.target.value)}
-                                        style={{ padding: "10px" }}
-                                    />
-                                </label>
-                            </div>
+  return (
+    <div className="modal-overlay" onClick={busy ? undefined : onClose}>
+      <div className="modal-dialog form" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>{code ? `Sửa mã ${code.code}` : "Tạo mã quà tặng"}</h3>
+          <button type="button" className="modal-close" aria-label="Đóng" onClick={onClose} disabled={busy}>
+            ×
+          </button>
+        </div>
 
-                            <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: "500" }}>Hạn sử dụng (Để trống = Vĩnh viễn):</span>
-                                <input
-                                    type="date"
-                                    value={editExpiresAt}
-                                    onChange={(e) => setEditExpiresAt(e.target.value)}
-                                    style={{ padding: "10px" }}
-                                />
-                            </label>
+        <form onSubmit={submit}>
+          {code ? null : (
+            <label>
+              Mã code (chữ in hoa, số, dấu chấm, gạch dưới)
+              <input
+                className="code-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="VD: GOSLYNK2026"
+                maxLength={64}
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+          )}
+          <div className="field-row">
+            <label>
+              Số ngày VIP
+              <input type="number" min={1} max={3650} value={days} onChange={(e) => setDays(e.target.value)} />
+            </label>
+            <label>
+              Lượt dùng (0 = không giới hạn)
+              <input type="number" min={0} value={maxUses} onChange={(e) => setMaxUses(e.target.value)} />
+            </label>
+          </div>
+          <label>
+            Hết hạn cuối ngày (để trống = không hết hạn)
+            <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+          </label>
+          {code ? (
+            <label>
+              Trạng thái
+              <select value={active ? "1" : "0"} onChange={(e) => setActive(e.target.value === "1")}>
+                <option value="1">Đang mở</option>
+                <option value="0">Đã khóa</option>
+              </select>
+            </label>
+          ) : null}
 
-                            <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: "500" }}>Trạng thái:</span>
-                                <select
-                                    value={editIsActive}
-                                    onChange={(e) => setEditIsActive(Number(e.target.value))}
-                                    style={{ padding: "10px" }}
-                                >
-                                    <option value={1}>🟢 Đang mở (Được phép sử dụng)</option>
-                                    <option value={0}>🔴 Đã khóa (Vô hiệu hóa)</option>
-                                </select>
-                            </label>
+          {error ? <p className="modal-message error">{error}</p> : null}
 
-                            <div className="modal-actions" style={{ marginTop: "10px", display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-                                <button type="button" className="btn ghost" onClick={() => setEditingCode(null)}>
-                                    Hủy
-                                </button>
-                                <button type="submit" className="btn primary" disabled={updating}>
-                                    {updating ? "Đang lưu…" : "Lưu Thay Đổi"}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-        </section>
-    );
+          <div className="modal-actions">
+            <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>
+              Hủy
+            </button>
+            <button type="submit" className="btn primary" disabled={busy || (!code && !name.trim())}>
+              {busy ? "Đang lưu…" : code ? "Lưu" : "Tạo mã"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }

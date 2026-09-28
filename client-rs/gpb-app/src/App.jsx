@@ -23,7 +23,6 @@ import AdminScreen from "./screens/AdminScreen.jsx";
 import RedeemModal from "./components/RedeemModal.jsx";
 import AdminRedeemScreen from "./screens/AdminRedeemScreen.jsx";
 
-
 const SESSION_KEY = "gsb-session-v2";
 const RELAY_OVERRIDE_KEY = "gsb-relay-override-v1";
 const REGIONS_KEY = "gpb-regions-v2";
@@ -70,7 +69,6 @@ export default function App() {
   const [bootError, setBootError] = useState("");
   const [showRedeemModal, setShowRedeemModal] = useState(false);
 
-
   const [status, setStatus] = useState(IDLE_STATUS);
   // Game ids in the order they took a slot; refs mirror state so quick clicks see the latest.
   const [slots, setSlotsState] = useState([]);
@@ -97,7 +95,7 @@ export default function App() {
 
   const endSession = useCallback(
     (message = "") => {
-      apiDisconnect().catch(() => { });
+      apiDisconnect().catch(() => {});
       setToken("");
       saveJson(SESSION_KEY, null);
       setUser(null);
@@ -199,7 +197,7 @@ export default function App() {
   );
 
   const onLogout = useCallback(() => {
-    apiLogout().catch(() => { });
+    apiLogout().catch(() => {});
     endSession();
   }, [endSession]);
 
@@ -313,8 +311,8 @@ export default function App() {
   const inShell = (screen === "home" || screen === "games") && user;
 
   return (
-    <div className={`app${screen === "admin-redeem" ? " wide admin-redeem" : screen === "admin" ? " wide" : ""}${inShell ? " shell" : ""}`}>
-      <UpdateBanner onBeforeInstall={() => apiDisconnect().catch(() => { })} />
+    <div className={`app${screen === "admin" ? " wide" : screen === "admin-redeem" ? " wide xl" : ""}${inShell ? " shell" : ""}`}>
+      <UpdateBanner onBeforeInstall={() => apiDisconnect().catch(() => {})} />
 
       {inShell ? (
         <AppHeader
@@ -381,20 +379,14 @@ export default function App() {
           onPick={onPick}
         />
       )}
-      {showRedeemModal && user && (
-        <RedeemModal
-          onClose={() => setShowRedeemModal(false)}
-          onSuccess={(result) => {
-            console.log("Đã nhận quà:", result);
-          }}
-        />
-      )}
+
+      {showRedeemModal && user && <RedeemModal onClose={() => setShowRedeemModal(false)} onRedeemed={refreshMe} />}
+
       {screen === "admin" && user?.role === "admin" && (
         <AdminScreen me={user} onChanged={refreshMe} onSessionRejected={endSession} onBack={() => setScreen("home")} />
       )}
-
       {screen === "admin-redeem" && user?.role === "admin" && (
-        <AdminRedeemScreen onBack={() => setScreen("home")} />
+        <AdminRedeemScreen onSessionRejected={endSession} onBack={() => setScreen("home")} />
       )}
     </div>
   );

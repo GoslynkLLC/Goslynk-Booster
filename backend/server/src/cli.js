@@ -4,25 +4,13 @@
 //   node --env-file=/etc/goslynk-api/env src/cli.js set-setting <key> <value>
 //   node --env-file=/etc/goslynk-api/env src/cli.js set-setting relay_psk --from-file /etc/gpb/psk
 import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import mysql from "mysql2/promise";
-import { config } from "./config.js";
 import { ROLES, setSetting } from "./lib.js";
-import { one, run, pool } from "./db.js";
+import { one, run, pool, migrate as migrateSchema } from "./db.js";
 
-const SCHEMA = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../database.sql");
 const SETTINGS = ["developer_mode", "developer_message", "registration_open", "relay_endpoint", "relay_psk"];
 
 async function migrate() {
-  const conn = await mysql.createConnection({ ...config.db, multipleStatements: true, charset: "utf8mb4" });
-  try {
-    await conn.query(fs.readFileSync(SCHEMA, "utf8"));
-    const [rows] = await conn.query("SHOW TABLES LIKE 'gsb\\_%'");
-    console.log("gsb tables:", rows.map((r) => Object.values(r)[0]).join(", "));
-  } finally {
-    await conn.end();
-  }
+  console.log("gsb tables:", (await migrateSchema()).join(", "));
 }
 
 async function setRole(username, role) {

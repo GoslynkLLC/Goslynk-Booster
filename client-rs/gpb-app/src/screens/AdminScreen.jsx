@@ -14,6 +14,12 @@ const ACTION_LABEL = {
   unlock: "Mở khóa",
   revoke_sessions: "Đăng xuất thiết bị",
   setting: "Cài đặt",
+  redeem_code: "Nhận mã quà",
+  redeem_invalid: "Nhập sai mã",
+  create_redeem_code: "Tạo mã quà",
+  update_redeem_code: "Sửa mã quà",
+  enable_redeem_code: "Mở mã quà",
+  disable_redeem_code: "Khóa mã quà",
 };
 
 export default function AdminScreen({ me, onChanged, onSessionRejected, onBack }) {

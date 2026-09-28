@@ -2,8 +2,25 @@ import logo from "../assets/goslynk-mark.png";
 
 const ROLE_LABEL = { admin: "Admin", developer: "Developer", vip: "VIP", user: "Thành viên" };
 
-export default function AppHeader({ user, tab, onTab, boostedCount, maxSlots, onAdmin, onAdminRedeem, onLogout, onOpenRedeemModal }) {
+/** "2026-10-05 23:50:00" (server time) as "05/10/2026". */
+function shortDate(s) {
+  const [y, m, d] = String(s).slice(0, 10).split("-");
+  return d && m && y ? `${d}/${m}/${y}` : s;
+}
+
+export default function AppHeader({
+  user,
+  tab,
+  onTab,
+  boostedCount,
+  maxSlots,
+  onAdmin,
+  onAdminRedeem,
+  onLogout,
+  onOpenRedeemModal,
+}) {
   const name = user.displayName || user.username;
+  const vipTitle = user.vipUntil ? `VIP đến ${shortDate(user.vipUntil)}` : undefined;
   return (
     <header className="app-header">
       <div className="app-brand">
@@ -41,8 +58,13 @@ export default function AppHeader({ user, tab, onTab, boostedCount, maxSlots, on
         </span>
         <span className="profile-text">
           <span className="profile-name">{name}</span>
-          <span className={`role-badge ${user.role}`}>{ROLE_LABEL[user.role] || user.role}</span>
+          <span className={`role-badge ${user.role}`} title={vipTitle}>
+            {ROLE_LABEL[user.role] || user.role}
+          </span>
         </span>
+        <button type="button" className="btn ghost sm accent-text" onClick={onOpenRedeemModal}>
+          Nhập code
+        </button>
         {onAdmin ? (
           <button type="button" className="btn ghost sm" onClick={onAdmin}>
             Quản trị
@@ -50,22 +72,13 @@ export default function AppHeader({ user, tab, onTab, boostedCount, maxSlots, on
         ) : null}
         {onAdminRedeem ? (
           <button type="button" className="btn ghost sm" onClick={onAdminRedeem}>
-            Quản lý Code
+            Mã quà
           </button>
         ) : null}
         <button type="button" className="btn ghost sm" onClick={onLogout}>
           Đăng xuất
         </button>
       </div>
-      {/* --- Thêm Nút Redeem vào thanh Header --- */}
-      <button
-        type="button"
-        className="btn ghost sm"
-        style={{ borderColor: 'var(--primary)', color: 'var(--primary)', marginLeft: '8px' }}
-        onClick={onOpenRedeemModal}
-      >
-        🎁 Nhập Code
-      </button>
     </header>
   );
 }
