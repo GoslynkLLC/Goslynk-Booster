@@ -126,3 +126,22 @@ export function errMsg(e) {
   if (e?.message) return e.message;
   return String(e);
 }
+
+// ------------------------------------------------------------------ Redeem Code API
+
+export function apiGetHwid() {
+  return invoke("get_hwid").catch(() => "DUMMY_LOCAL_HWID");
+}
+
+export async function apiRedeemCode(code) {
+  const hwidHash = await apiGetHwid();
+  return http("redeem", { method: "POST", body: { code, hwidHash } });
+}
+
+export const adminRedeemApi = {
+  list: () => http("admin/redeems"),
+  create: (data) => http("admin/redeems", { method: "POST", body: data }),
+  update: (id, data) => http(`admin/redeems/${id}`, { method: "PUT", body: data }),
+  delete: (id) => http(`admin/redeems/${id}`, { method: "DELETE" }),
+};
+
