@@ -158,7 +158,6 @@ fn protocol_vectors() {
         "HandshakeReq with fixed nonce must match golden packet"
     );
 
-    // HandshakeResp
     let resp_pkt = hex(&v.handshake_resp.packet_hex);
     let mut resp_nonce = [0u8; 8];
     resp_nonce.copy_from_slice(&hex(&v.handshake_resp.nonce_hex));
@@ -182,11 +181,9 @@ fn protocol_vectors() {
     assert_eq!(parsed.mtu, v.handshake_resp.mtu);
     assert_eq!(parsed.status, STATUS_OK);
 
-    // Version mismatch
     let mismatch = build_version_mismatch_resp(psk, v.version_mismatch_resp.client_version);
     assert_eq!(mismatch, hex(&v.version_mismatch_resp.packet_hex));
 
-    // Data
     let inner = hex(&v.data.inner_hex);
     let sid = sid_from(&v.data.session_id_hex);
     let mut buf = [0u8; MAX_PACKET_LEN];
@@ -197,7 +194,6 @@ fn protocol_vectors() {
     assert_eq!(dec_sid, sid);
     assert_eq!(dec_inner, inner.as_slice());
 
-    // Ping / Pong / Probe
     let ping_sid = sid_from(&v.ping.session_id_hex);
     assert_eq!(build_ping(&ping_sid, v.ping.stamp), hex(&v.ping.packet_hex));
     assert_eq!(
@@ -213,7 +209,6 @@ fn protocol_vectors() {
         hex(&v.probe_reply.packet_hex)
     );
 
-    // Disconnect
     let d_sid = sid_from(&v.disconnect.session_id_hex);
     assert_eq!(build_disconnect(&d_sid), hex(&v.disconnect.packet_hex));
 }

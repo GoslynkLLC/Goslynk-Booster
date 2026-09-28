@@ -86,7 +86,6 @@ func TestMaxClientsFreesASlotWhenASessionEnds(t *testing.T) {
 		t.Fatal("admitted past the cap")
 	}
 
-	// releaseSession with keepReservation false: the client said goodbye rather than going quiet.
 	s.releaseSession(one, false)
 
 	if _, ok := s.allocSession(addr(t, "203.0.113.9:41003"), clientID(3), sessionIdent{}); !ok {

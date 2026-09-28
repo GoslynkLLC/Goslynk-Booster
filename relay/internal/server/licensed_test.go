@@ -2,9 +2,7 @@ package server
 
 // The licensed data plane, over a real UDP socket.
 //
-// Everything about token mode was unit-tested and had never carried a packet: BuildToken and
-// VerifyToken were exercised directly, and relayd's -licence-key path had no test at all. These
-// run the same loopUDP a player's packets go through, so a mistake in dispatch, in mode
+// These run the same loopUDP a player's packets go through, so a mistake in dispatch, in mode
 // selection or in the answer's signature shows up here rather than on a VPS.
 //
 // The two properties worth more than the happy path are at the bottom: a token signed by the
@@ -153,7 +151,6 @@ func TestAStolenTokenIsUselessWithoutTheDeviceKey(t *testing.T) {
 	}
 	token := mintFor(t, licence, victim, time.Hour)
 
-	// Same token, signed by the thief's key.
 	req, _, err := protocol.BuildHandshakeReqToken(thief, token, clientID(9), time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -170,9 +167,6 @@ func TestExpiredTokenIsAnsweredAndNotIgnored(t *testing.T) {
 	// customer whose subscription lapsed rather than a stranger probing the port, and telling
 	// them so is the difference between "sign in again to renew" and a two-second timeout that
 	// blames the network.
-	//
-	// This test was originally written the other way round, asserting silence, and the relay
-	// proved it wrong. The behaviour is right; the assumption was not.
 	s, cli, licence, relayPub := licensedRelay(t)
 
 	device, err := protocol.GenerateKey()

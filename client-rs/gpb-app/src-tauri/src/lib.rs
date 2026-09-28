@@ -107,7 +107,6 @@ fn default_relay() -> RelayDefaults {
     d
 }
 
-/// Async (like every command that may wait on the tunnel) so it never blocks the UI thread.
 /// Hashed machine id sent with redeem codes (see `hwid`).
 #[tauri::command]
 fn get_hwid() -> Result<String, String> {

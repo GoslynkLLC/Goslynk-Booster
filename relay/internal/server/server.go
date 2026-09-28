@@ -37,7 +37,7 @@ type Config struct {
 	MaxSessionAge time.Duration
 
 	// MaxClients caps how many sessions may be live at once. 0 means no cap beyond the address
-	// pool, which is how every relay behaved before this existed.
+	// pool.
 	//
 	// A cap by COUNT rather than by shrinking Subnet, and the difference is not cosmetic. The
 	// pool size of a prefix is whatever the arithmetic gives - a /26 is 61 usable addresses, not
@@ -439,8 +439,7 @@ func (s *Server) handleHandshake(pkt []byte, from netip.AddrPort) {
 // Clock skew earns info while the rest stays at debug because it is the only one that is not a
 // scanner, a stale build or a mismatched key. It is a paying customer whose PC has the wrong
 // time, it takes out every relay at once, and from the client side it is indistinguishable from
-// a blocked UDP port - which is exactly how one cost a day on 2026-09-12 before the log was
-// asked. One line here is the whole difference. The others stay quiet on purpose: an open UDP
+// a blocked UDP port. The others stay quiet on purpose: an open UDP
 // port gets scanned, and a bad signature per packet at info is a log nobody can read.
 //
 // Promoting it cannot be used to flood the log, and that is not luck - it is the verification

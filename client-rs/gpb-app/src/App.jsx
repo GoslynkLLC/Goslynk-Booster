@@ -21,7 +21,7 @@ import HomeScreen from "./screens/HomeScreen.jsx";
 import GamesScreen from "./screens/GamesScreen.jsx";
 import AdminScreen from "./screens/AdminScreen.jsx";
 import RedeemModal from "./components/RedeemModal.jsx";
-import AdminRedeemScreen from "./screens/AdminRedeemScreen.jsx";
+import ProfileScreen from "./screens/ProfileScreen.jsx";
 
 const SESSION_KEY = "gsb-session-v2";
 // Held a hand-entered relay PSK in versions up to 0.1.4; cleared on start.
@@ -58,7 +58,7 @@ function without(obj, key) {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState("boot"); // boot | login | register | home | games | admin
+  const [screen, setScreen] = useState("boot"); // boot | login | register | home | games | profile | admin
   const [user, setUser] = useState(null);
   const [developerMode, setDeveloperMode] = useState(false);
   const [serverRelay, setServerRelay] = useState(EMPTY_RELAY);
@@ -140,7 +140,7 @@ export default function App() {
         setScreen("home");
       })
       .catch((e) => {
-        if (isSessionRejected(e)) endSession(e.status === 401 ? "" : e.message);
+        if (isSessionRejected(e)) endSession(e.status === 401 && e.code !== "signed_in_elsewhere" ? "" : e.message);
         else {
           setNotice(errMsg(e));
           setScreen("login");
@@ -308,10 +308,10 @@ export default function App() {
     else boostGame(game);
   }
 
-  const inShell = (screen === "home" || screen === "games") && user;
+  const inShell = ["home", "games", "profile"].includes(screen) && user;
 
   return (
-    <div className={`app${screen === "admin" ? " wide" : screen === "admin-redeem" ? " wide xl" : ""}${inShell ? " shell" : ""}`}>
+    <div className={`app${screen === "admin" ? " wide" : ""}${inShell ? " shell" : ""}`}>
       <UpdateBanner onBeforeInstall={() => apiDisconnect().catch(() => {})} />
 
       {inShell ? (
@@ -321,10 +321,10 @@ export default function App() {
           onTab={setScreen}
           boostedCount={boosted.length}
           maxSlots={MAX_SLOTS}
+          onProfile={() => setScreen("profile")}
+          onRedeem={() => setShowRedeemModal(true)}
           onAdmin={user.role === "admin" ? () => setScreen("admin") : null}
-          onAdminRedeem={user.role === "admin" ? () => setScreen("admin-redeem") : null}
           onLogout={onLogout}
-          onOpenRedeemModal={() => setShowRedeemModal(true)}
         />
       ) : null}
 
@@ -378,13 +378,19 @@ export default function App() {
         />
       )}
 
+      {screen === "profile" && user && (
+        <ProfileScreen
+          user={user}
+          onUpdated={applyAuth}
+          onSessionRejected={endSession}
+          onRedeem={() => setShowRedeemModal(true)}
+        />
+      )}
+
       {showRedeemModal && user && <RedeemModal onClose={() => setShowRedeemModal(false)} onRedeemed={refreshMe} />}
 
       {screen === "admin" && user?.role === "admin" && (
         <AdminScreen me={user} onChanged={refreshMe} onSessionRejected={endSession} onBack={() => setScreen("home")} />
-      )}
-      {screen === "admin-redeem" && user?.role === "admin" && (
-        <AdminRedeemScreen onSessionRejected={endSession} onBack={() => setScreen("home")} />
       )}
     </div>
   );

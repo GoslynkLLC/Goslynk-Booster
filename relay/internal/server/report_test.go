@@ -265,9 +265,6 @@ func TestReportCrossCheck(t *testing.T) {
 // common ones - a key that was never pasted into the dashboard, and a signature that does not
 // verify - are indistinguishable from a bare "401 Unauthorized". The licence server says which
 // in one sentence, so the relay's log has to carry it.
-//
-// Cost a round of guessing on a live relay: 840 consecutive failures, and the log said only the
-// status line.
 func TestPostReportCarriesTheRefusalReason(t *testing.T) {
 	priv, err := protocol.GenerateKey()
 	if err != nil {

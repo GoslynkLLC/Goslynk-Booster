@@ -59,8 +59,13 @@ before(async () => {
   });
   await conn.query(`DROP TABLE IF EXISTS ${ALL_TABLES}`);
   await conn.query(fs.readFileSync(new URL("../../database.sql", import.meta.url), "utf8"));
-  // A database created before redeem codes existed: migrate has to add the column itself.
-  await conn.query("ALTER TABLE gsb_users DROP COLUMN vip_until");
+  // A database created before redeem codes and VIP+ existed: migrate has to add the columns and
+  // widen the enums itself.
+  await conn.query(`ALTER TABLE gsb_users DROP COLUMN vip_until, DROP COLUMN vip_plus_until,
+    MODIFY COLUMN role ENUM('user', 'vip', 'developer', 'admin') NOT NULL DEFAULT 'user'`);
+  await conn.query(
+    "ALTER TABLE gsb_redeem_codes MODIFY COLUMN reward_type ENUM('vip_days', 'role') NOT NULL DEFAULT 'vip_days'",
+  );
   await conn.end();
   await migrate();
   await migrate();
@@ -143,7 +148,7 @@ test("roles and admin guard", async () => {
 
   const list = await call("/api/admin/users?q=bo&role=", { token: tokens.alice });
   assert.equal(list.status, 200);
-  assert.deepEqual(list.data.roleCounts, { user: 0, vip: 1, developer: 1, admin: 1 });
+  assert.deepEqual(list.data.roleCounts, { user: 0, vip: 1, vip_plus: 0, developer: 1, admin: 1 });
   assert.deepEqual(list.data.users.map((u) => u.username).sort(), ["bob"]);
 });
 
@@ -243,6 +248,75 @@ test("CORS for the app webview only", async () => {
   assert.equal((await call("/admin/")).status, 404);
 });
 
+test("profile: display name freely, email only with the password", async () => {
+  const r = await call("/api/auth/register", {
+    method: "POST",
+    body: { username: "gina", email: "gina@example.com", password: "password-1" },
+  });
+  tokens.gina = r.data.token;
+  const profile = (body) => call("/api/auth/profile", { method: "POST", token: tokens.gina, body });
+
+  const named = await profile({ displayName: "Gina G" });
+  assert.equal(named.status, 200);
+  assert.equal(named.data.user.displayName, "Gina G");
+
+  assert.equal((await profile({ email: "new@example.com" })).data.code, "wrong_password");
+  assert.equal((await profile({ email: "bad", currentPassword: "password-1" })).data.code, "invalid_email");
+  assert.equal((await profile({ email: "alice@example.com", currentPassword: "password-1" })).data.code, "email_taken");
+  const moved = await profile({ email: "New@Example.com", currentPassword: "password-1" });
+  assert.equal(moved.data.user.email, "new@example.com");
+});
+
+test("password change keeps this device and signs out the others", async () => {
+  await sql("UPDATE gsb_users SET role = 'vip' WHERE username = 'gina'");
+  const other = await call("/api/auth/login", { method: "POST", body: { login: "gina", password: "password-1" } });
+  const list = await call("/api/auth/sessions", { token: tokens.gina });
+  assert.equal(list.data.sessions.length, 2);
+  assert.equal(list.data.sessions.filter((s) => s.current).length, 1);
+
+  const pw = (body) => call("/api/auth/password", { method: "POST", token: tokens.gina, body });
+  assert.equal((await pw({ currentPassword: "password-1", newPassword: "short" })).data.code, "invalid_password");
+  const done = await pw({ currentPassword: "password-1", newPassword: "password-2" });
+  assert.equal(done.data.signedOut, 1);
+  assert.equal((await call("/api/auth/me", { token: other.data.token })).status, 401);
+  assert.equal((await call("/api/auth/me", { token: tokens.gina })).status, 200);
+
+  const again = await call("/api/auth/login", { method: "POST", body: { login: "gina", password: "password-2" } });
+  const revoke = await call("/api/auth/sessions/revoke-others", { method: "POST", token: again.data.token });
+  assert.equal(revoke.data.signedOut, 1);
+  assert.equal((await call("/api/auth/me", { token: tokens.gina })).status, 401);
+});
+
+test("plain accounts keep only their newest device", async () => {
+  await sql("UPDATE gsb_users SET role = 'user' WHERE username = 'gina'");
+  const login = () => call("/api/auth/login", { method: "POST", body: { login: "gina", password: "password-2" } });
+  const first = await login();
+  const second = await login();
+
+  const kicked = await call("/api/auth/me", { token: first.data.token });
+  assert.equal(kicked.status, 401);
+  assert.equal(kicked.data.code, "signed_in_elsewhere");
+  assert.equal((await call("/api/auth/me", { token: second.data.token })).status, 200);
+  const list = await call("/api/auth/sessions", { token: second.data.token });
+  assert.deepEqual(list.data.sessions.map((s) => s.current), [true]);
+});
+
+test("VIP+ accounts keep their two newest devices", async () => {
+  await sql("UPDATE gsb_users SET role = 'vip_plus' WHERE username = 'gina'");
+  const login = () => call("/api/auth/login", { method: "POST", body: { login: "gina", password: "password-2" } });
+  const first = await login();
+  const second = await login();
+  const third = await login();
+
+  assert.equal((await call("/api/auth/me", { token: first.data.token })).data.code, "signed_in_elsewhere");
+  assert.equal((await call("/api/auth/me", { token: second.data.token })).status, 200);
+  const me = await call("/api/auth/me", { token: third.data.token });
+  assert.equal(me.data.user.role, "vip_plus");
+  assert.equal(me.data.user.deviceLimit, 2);
+  assert.equal(me.data.user.canBoost, true);
+  await sql("UPDATE gsb_users SET role = 'user' WHERE username = 'gina'");
+});
+
 const hw = (n) => n.toString(16).padStart(64, "a");
 const redeem = (who, code, hwidHash) => call("/api/redeem", { method: "POST", token: tokens[who], body: { code, hwidHash } });
 const createCode = (body) => call("/api/admin/redeems", { method: "POST", token: tokens.alice, body });
@@ -284,7 +358,8 @@ test("redeem pays once per account and once per machine, and extends VIP", async
   assert.equal(ok.status, 200);
   const me = await call("/api/auth/me", { token: tokens.dave });
   assert.equal(me.data.user.role, "vip");
-  assert.equal(me.data.user.vipUntil, ok.data.vipUntil);
+  assert.equal(me.data.user.vipUntil, ok.data.until);
+  assert.equal(me.data.user.deviceLimit, 1);
   assert.equal(me.data.user.canBoost, true);
   assert.equal(me.data.relay.endpoint, "74.81.54.113:51820");
 

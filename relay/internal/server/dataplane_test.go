@@ -63,7 +63,6 @@ func expectSilence(t *testing.T, c *net.UDPConn) {
 	}
 }
 
-// handshake performs a real handshake and returns the parsed result.
 func handshake(t *testing.T, c *net.UDPConn, id protocol.ClientID) protocol.HandshakeResult {
 	t.Helper()
 	req, nonce, err := protocol.BuildHandshakeReq(testPSK, id, time.Now())
@@ -375,11 +374,9 @@ func TestRepeatedHandshakeReturnsTheSameSession(t *testing.T) {
 func TestMalformedPacketsDoNotKillTheRelay(t *testing.T) {
 	s, c := newTestRelay(t)
 
-	// Header bytes are version<<4|type, so these all have to move with the version. They used to
-	// be 0x2x, and leaving them there after the bump to v3 turned this test into a different one:
-	// 0x21 is a v2 handshake, which the relay now correctly ANSWERS with a version-mismatch
-	// refusal, and that unread 52-byte reply was then picked up by the handshake below instead of
-	// its own answer. The failure looked like a broken parser and was nothing of the sort.
+	// Header bytes are version<<4|type, so these all have to move with the version. 0x21 is a v2
+	// handshake, which the relay correctly ANSWERS with a version-mismatch refusal, and that unread
+	// 52-byte reply would be picked up by the handshake below instead of its own answer.
 	//
 	// A wrong-version handshake belongs in the test that is about wrong versions, not here.
 	junk := [][]byte{
@@ -403,7 +400,6 @@ func TestMalformedPacketsDoNotKillTheRelay(t *testing.T) {
 		}
 	}
 
-	// The relay must still be serving after all of that.
 	res := handshake(t, c, clientID(12))
 	if s.lookup(res.Session) == nil {
 		t.Error("the relay stopped working after receiving malformed packets")

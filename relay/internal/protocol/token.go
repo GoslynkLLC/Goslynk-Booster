@@ -1,6 +1,5 @@
 package protocol
 
-// Tac gia Claude nhe deo phai tao nen la code co thoi thi chui no dung chui tao 🙏
 // The licence token: what a paying client presents instead of a shared key.
 //
 // The relay verifies it OFFLINE, against a public key it already has. It makes no network call,

@@ -1,12 +1,6 @@
+import { useEffect, useRef, useState } from "react";
 import logo from "../assets/goslynk-mark.png";
-
-const ROLE_LABEL = { admin: "Admin", developer: "Developer", vip: "VIP", user: "Thành viên" };
-
-/** "2026-10-05 23:50:00" (server time) as "05/10/2026". */
-function shortDate(s) {
-  const [y, m, d] = String(s).slice(0, 10).split("-");
-  return d && m && y ? `${d}/${m}/${y}` : s;
-}
+import { ROLE_LABEL, vipLines } from "../format.js";
 
 export default function AppHeader({
   user,
@@ -14,13 +8,36 @@ export default function AppHeader({
   onTab,
   boostedCount,
   maxSlots,
+  onProfile,
+  onRedeem,
   onAdmin,
-  onAdminRedeem,
   onLogout,
-  onOpenRedeemModal,
 }) {
   const name = user.displayName || user.username;
-  const vipTitle = user.vipUntil ? `VIP đến ${shortDate(user.vipUntil)}` : undefined;
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (!menuRef.current?.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const pick = (fn) => () => {
+    setOpen(false);
+    fn();
+  };
+
   return (
     <header className="app-header">
       <div className="app-brand">
@@ -52,32 +69,52 @@ export default function AppHeader({
         </button>
       </nav>
 
-      <div className="profile">
-        <span className="avatar" aria-hidden="true">
-          {name.slice(0, 1).toUpperCase()}
-        </span>
-        <span className="profile-text">
-          <span className="profile-name">{name}</span>
-          <span className={`role-badge ${user.role}`} title={vipTitle}>
-            {ROLE_LABEL[user.role] || user.role}
+      <div className="profile-menu" ref={menuRef}>
+        <button
+          type="button"
+          className={`profile${open ? " open" : ""}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="avatar" aria-hidden="true">
+            {name.slice(0, 1).toUpperCase()}
           </span>
-        </span>
-        <button type="button" className="btn ghost sm accent-text" onClick={onOpenRedeemModal}>
-          Nhập code
+          <span className="profile-text">
+            <span className="profile-name">{name}</span>
+            <span className={`role-badge ${user.role}`}>{ROLE_LABEL[user.role] || user.role}</span>
+          </span>
+          <span className="caret" aria-hidden="true" />
         </button>
-        {onAdmin ? (
-          <button type="button" className="btn ghost sm" onClick={onAdmin}>
-            Quản trị
-          </button>
+
+        {open ? (
+          <div className="menu" role="menu">
+            <div className="menu-head">
+              <span className="menu-name">{name}</span>
+              <span className="muted">@{user.username}</span>
+              {vipLines(user).map((line) => (
+                <span key={line} className="menu-vip">
+                  {line}
+                </span>
+              ))}
+            </div>
+            <button type="button" role="menuitem" onClick={pick(onProfile)}>
+              Hồ sơ
+            </button>
+            <button type="button" role="menuitem" onClick={pick(onRedeem)}>
+              Nhập code
+            </button>
+            {onAdmin ? (
+              <button type="button" role="menuitem" onClick={pick(onAdmin)}>
+                Quản trị
+              </button>
+            ) : null}
+            <hr />
+            <button type="button" role="menuitem" className="danger-text" onClick={pick(onLogout)}>
+              Đăng xuất
+            </button>
+          </div>
         ) : null}
-        {onAdminRedeem ? (
-          <button type="button" className="btn ghost sm" onClick={onAdminRedeem}>
-            Mã quà
-          </button>
-        ) : null}
-        <button type="button" className="btn ghost sm" onClick={onLogout}>
-          Đăng xuất
-        </button>
       </div>
     </header>
   );
