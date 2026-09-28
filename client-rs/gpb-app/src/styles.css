@@ -461,10 +461,12 @@ input:disabled {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: linear-gradient(to bottom,
-      rgba(8, 10, 14, 0) 38%,
-      rgba(8, 10, 14, 0.72) 68%,
-      rgba(8, 10, 14, 0.96) 100%);
+  background: linear-gradient(
+    to bottom,
+    rgba(8, 10, 14, 0) 38%,
+    rgba(8, 10, 14, 0.72) 68%,
+    rgba(8, 10, 14, 0.96) 100%
+  );
 }
 
 .game-info {
@@ -929,8 +931,11 @@ input:disabled {
 
 /* ------------------------------------------------------------ accounts and admin */
 
-.app.wide,
-.app.admin-redeem {
+.app.wide {
+  max-width: 560px;
+}
+
+.app.wide.xl {
   max-width: 850px;
 }
 
@@ -1083,6 +1088,11 @@ select:focus {
 
 .btn.ghost.danger-text {
   color: #f0a0a0;
+}
+
+.btn.ghost.accent-text {
+  border-color: #2f6b4b;
+  color: #9fe7b8;
 }
 
 .tabs {
@@ -1437,4 +1447,108 @@ label.check input {
   background: rgba(15, 45, 25, 0.6);
   border: 1px solid var(--accent);
   color: #9ef0b3;
+}
+
+.modal-close {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.modal-close:hover {
+  color: var(--text);
+}
+
+.modal-dialog.form {
+  max-width: 480px;
+}
+
+.modal-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-dialog .field-row {
+  display: flex;
+  gap: 12px;
+}
+
+.modal-dialog .field-row label {
+  flex: 1;
+}
+
+.modal-dialog label input,
+.modal-dialog label select {
+  margin-top: 6px;
+  width: 100%;
+}
+
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+
+.redeem-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.redeem-table th,
+.redeem-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.redeem-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.redeem-table tr.off td {
+  opacity: 0.6;
+}
+
+.redeem-table .code-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent-hover);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.redeem-table .actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.pill.on {
+  color: #2ecc71;
+  background: rgba(46, 204, 113, 0.15);
+}
+
+.pill.off {
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.15);
+}
+
+.pill.expired {
+  color: #e67e22;
+  background: rgba(230, 126, 34, 0.15);
 }

@@ -1,7 +1,9 @@
 import { config } from "./config.js";
-import { createApp, cleanupExpired, ensureMigrations, pool } from "./app.js";
+import { createApp, cleanupExpired, pool } from "./app.js";
+import { migrate } from "./db.js";
 
-ensureMigrations().catch((e) => console.error("migration:", e.message));
+// Queries read gsb_users.vip_until, so the schema has to be current before the first request.
+await migrate().catch((e) => console.error("migration:", e.message));
 
 const app = createApp();
 const server = app.listen(config.port, config.host, () => {

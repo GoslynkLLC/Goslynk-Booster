@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedUtc": "2026-09-26T00:00:00Z",
-  "note": "VALORANT Asia Pacific. Riot Direct ranges as upstream GamePingBooster keeps them (151.106.248.0/28, 43.229.65.0/24 - never overlapping LoL or TFT) plus the AWS Global Accelerator anycast addresses community captures put in front of the Singapore shard. Capture a match before relying on it.",
+  "note": "VALORANT Asia Pacific. Riot Direct ranges as upstream GamePingBooster keeps them (151.106.248.0/28, 43.229.65.0/24 - never overlapping LoL or TFT). Capture a match before relying on it. The AWS Global Accelerator addresses in front of the shard (13.248.193.101, 75.2.69.178, 76.223.1.250, 99.83.157.116) are deliberately absent: they are anycast, so every player already reaches the AWS edge nearest to them (about 25 ms from FPT in Vietnam) and AWS carries the rest. Tunnelling them only adds the trip to the relay, 87 ms instead of 25.",
   "games": [
     {
       "id": "valorant",
@@ -12,15 +12,11 @@
         {
           "id": "ap-sg",
           "name": "Asia Pacific (Singapore)",
-          "source": "as6507+aws-ga",
-          "note": "Riot Direct + AWS Global Accelerator. Chưa bắt gói tin xác nhận.",
+          "source": "as6507",
+          "note": "Riot Direct. Chưa bắt gói tin xác nhận.",
           "cidrs": [
             "151.106.248.0/28",
-            "43.229.65.0/24",
-            "13.248.193.101/32",
-            "75.2.69.178/32",
-            "76.223.1.250/32",
-            "99.83.157.116/32"
+            "43.229.65.0/24"
           ],
           "landmarks": []
         }

@@ -127,14 +127,13 @@ export function errMsg(e) {
   return String(e);
 }
 
-// ------------------------------------------------------------------ Redeem Code API
-
-export function apiGetHwid() {
-  return invoke("get_hwid").catch(() => "DUMMY_LOCAL_HWID");
-}
-
 export async function apiRedeemCode(code) {
-  const hwidHash = await apiGetHwid();
+  let hwidHash;
+  try {
+    hwidHash = await invoke("get_hwid");
+  } catch (e) {
+    throw new ApiError(`Không đọc được mã thiết bị: ${errMsg(e)}`, 0, "hwid");
+  }
   return http("redeem", { method: "POST", body: { code, hwidHash } });
 }
 
@@ -142,6 +141,5 @@ export const adminRedeemApi = {
   list: () => http("admin/redeems"),
   create: (data) => http("admin/redeems", { method: "POST", body: data }),
   update: (id, data) => http(`admin/redeems/${id}`, { method: "PUT", body: data }),
-  delete: (id) => http(`admin/redeems/${id}`, { method: "DELETE" }),
+  toggle: (id) => http(`admin/redeems/${id}`, { method: "DELETE" }),
 };
-

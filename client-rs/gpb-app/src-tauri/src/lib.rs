@@ -6,6 +6,7 @@
 
 #[cfg(target_os = "macos")]
 mod helper;
+mod hwid;
 mod profiles;
 mod tunnel;
 
@@ -107,6 +108,12 @@ fn default_relay() -> RelayDefaults {
 }
 
 /// Async (like every command that may wait on the tunnel) so it never blocks the UI thread.
+/// Hashed machine id sent with redeem codes (see `hwid`).
+#[tauri::command]
+fn get_hwid() -> Result<String, String> {
+    hwid::machine_hash()
+}
+
 #[tauri::command]
 async fn get_status(state: State<'_, AppState>) -> Result<StatusSnapshot, String> {
     let mut guard = state.boosted.lock().map_err(|e| e.to_string())?;
@@ -267,6 +274,7 @@ pub fn run() {
             disconnect,
             get_status,
             default_relay,
+            get_hwid,
             profiles::list_games,
         ])
         .run(tauri::generate_context!())

@@ -74,13 +74,19 @@ export const developerMessage = (s) => s.developer_message || DEFAULT_DEV_MESSAG
 
 // ------------------------------------------------------------------ users and sessions
 
+/** Selects a user row with `vip_active`, which publicUser needs; compared in SQL to stay in the DB's clock. */
+export const USER_SELECT = "SELECT *, (vip_until > NOW()) AS vip_active FROM gsb_users";
+
 export function publicUser(u) {
+  const vip = Number(u.vip_active) === 1;
   return {
     id: Number(u.id),
     username: u.username,
     email: u.email,
     displayName: u.display_name || u.username,
-    role: u.role,
+    // Days from a redeem code make a plain user VIP until they run out; other roles rank higher.
+    role: vip && u.role === "user" ? "vip" : u.role,
+    vipUntil: vip ? u.vip_until : null,
   };
 }
 
@@ -132,7 +138,7 @@ export async function auth(req) {
   const token = bearer(req);
   if (!token) fail("Chưa đăng nhập.", 401, "unauthorized");
   const u = await one(
-    `SELECT u.*, s.id AS session_id,
+    `SELECT u.*, s.id AS session_id, (u.vip_until > NOW()) AS vip_active,
             (s.last_seen_at IS NULL OR s.last_seen_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)) AS stale
        FROM gsb_sessions s JOIN gsb_users u ON u.id = s.user_id
       WHERE s.token_hash = ? AND s.expires_at > NOW()`,

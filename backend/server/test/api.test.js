@@ -16,8 +16,12 @@ Object.assign(env, {
 });
 
 const { createApp, pool } = await import("../src/app.js");
+const { migrate } = await import("../src/db.js");
 const fs = await import("node:fs");
 const mysql = (await import("mysql2/promise")).default;
+
+const ALL_TABLES =
+  "gsb_hwid_redeems, gsb_redeem_codes, gsb_sessions, gsb_login_attempts, gsb_audit_log, gsb_settings, gsb_users";
 
 let server;
 let base;
@@ -53,11 +57,13 @@ before(async () => {
     database: env.DB_NAME,
     multipleStatements: true,
   });
-  await conn.query(
-    "DROP TABLE IF EXISTS gsb_sessions, gsb_login_attempts, gsb_audit_log, gsb_settings, gsb_users",
-  );
+  await conn.query(`DROP TABLE IF EXISTS ${ALL_TABLES}`);
   await conn.query(fs.readFileSync(new URL("../../database.sql", import.meta.url), "utf8"));
+  // A database created before redeem codes existed: migrate has to add the column itself.
+  await conn.query("ALTER TABLE gsb_users DROP COLUMN vip_until");
   await conn.end();
+  await migrate();
+  await migrate();
 
   server = createApp().listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
@@ -66,7 +72,7 @@ before(async () => {
 
 after(async () => {
   await new Promise((r) => server.close(r));
-  await pool.query("DROP TABLE IF EXISTS gsb_sessions, gsb_login_attempts, gsb_audit_log, gsb_settings, gsb_users");
+  await pool.query(`DROP TABLE IF EXISTS ${ALL_TABLES}`);
   await pool.end();
 });
 
@@ -229,11 +235,127 @@ test("CORS for the app webview only", async () => {
   const pre = await call("/api/auth/login", { method: "OPTIONS", headers: { Origin: "tauri://localhost" } });
   assert.equal(pre.status, 204);
   assert.equal(pre.headers.get("access-control-allow-origin"), "tauri://localhost");
+  assert.match(pre.headers.get("access-control-allow-methods"), /\bPUT\b/);
   const win = await call("/api/status", { headers: { Origin: "http://tauri.localhost" } });
   assert.equal(win.headers.get("access-control-allow-origin"), "http://tauri.localhost");
   const evil = await call("/api/status", { headers: { Origin: "https://evil.example" } });
   assert.equal(evil.headers.get("access-control-allow-origin"), null);
   assert.equal((await call("/admin/")).status, 404);
+});
+
+const hw = (n) => n.toString(16).padStart(64, "a");
+const redeem = (who, code, hwidHash) => call("/api/redeem", { method: "POST", token: tokens[who], body: { code, hwidHash } });
+const createCode = (body) => call("/api/admin/redeems", { method: "POST", token: tokens.alice, body });
+const codeRow = async (code) => (await sql("SELECT * FROM gsb_redeem_codes WHERE code = ?", [code]))[0][0];
+
+test("admin creates redeem codes with validation", async () => {
+  assert.equal((await createCode({ code: "GIFT7", rewardValue: 7, maxUses: 2 })).status, 201);
+  assert.equal((await createCode({ code: "gift3", rewardValue: 3, expiresAt: "2099-12-31" })).status, 201);
+  assert.equal((await createCode({ code: "a!" })).data.code, "invalid_code");
+  assert.equal((await createCode({ code: "PAST", expiresAt: "2001-01-01" })).data.code, "past_expires_at");
+  assert.equal((await createCode({ code: "BADDAY", expiresAt: "2099-02-30" })).data.code, "invalid_expires_at");
+  assert.equal((await createCode({ code: "GIFT7" })).status, 409);
+  assert.equal((await call("/api/admin/redeems", { token: tokens.dev })).status, 403);
+
+  const list = await call("/api/admin/redeems", { token: tokens.alice });
+  const gift3 = list.data.codes.find((c) => c.code === "GIFT3");
+  assert.equal(gift3.expiresAt, "2099-12-31 23:59:59");
+  assert.equal(gift3.rewardValue, 3);
+  assert.equal(gift3.isActive, true);
+  assert.equal(gift3.expired, false);
+});
+
+test("redeem pays once per account and once per machine, and extends VIP", async () => {
+  for (const name of ["dave", "erin", "fay"]) {
+    const r = await call("/api/auth/register", {
+      method: "POST",
+      body: { username: name, email: `${name}@example.com`, password: "password-1" },
+    });
+    tokens[name] = r.data.token;
+  }
+  assert.equal((await redeem("dave", "GIFT7", "DUMMY_LOCAL_HWID")).data.code, "invalid_hwid");
+  assert.equal((await call("/api/redeem", { method: "POST", body: { code: "GIFT7", hwidHash: hw(1) } })).status, 401);
+
+  const ok = await redeem("dave", "gift7", hw(1));
+  assert.equal(ok.status, 200);
+  const me = await call("/api/auth/me", { token: tokens.dave });
+  assert.equal(me.data.user.role, "vip");
+  assert.equal(me.data.user.vipUntil, ok.data.vipUntil);
+
+  const again = await redeem("dave", "GIFT7", hw(2));
+  assert.equal(again.status, 409);
+  assert.match(again.data.error, /Tài khoản/);
+  const sameMachine = await redeem("erin", "GIFT7", hw(1));
+  assert.equal(sameMachine.status, 409);
+  assert.match(sameMachine.data.error, /Máy này/);
+
+  assert.equal((await redeem("erin", "GIFT7", hw(2))).status, 200);
+  assert.equal((await redeem("fay", "GIFT7", hw(3))).data.code, "code_limit_reached");
+  assert.equal((await codeRow("GIFT7")).used_count, 2);
+
+  assert.equal((await redeem("dave", "GIFT3", hw(1))).status, 200);
+  const [[d]] = await sql("SELECT TIMESTAMPDIFF(MINUTE, NOW(), vip_until) AS m FROM gsb_users WHERE username = 'dave'");
+  assert.ok(Math.abs(d.m - 10 * 24 * 60) <= 2, `7 + 3 days stacked, got ${d.m} minutes`);
+
+  // The admin panel edits the stored role, not the VIP it reports to the app.
+  const users = await call("/api/admin/users?q=dave&role=", { token: tokens.alice });
+  assert.equal(users.data.users[0].role, "user");
+  assert.ok(users.data.users[0].vipUntil);
+
+  await sql("UPDATE gsb_users SET vip_until = NOW() - INTERVAL 1 MINUTE WHERE username = 'dave'");
+  const lapsed = await call("/api/auth/me", { token: tokens.dave });
+  assert.equal(lapsed.data.user.role, "user");
+  assert.equal(lapsed.data.user.vipUntil, null);
+});
+
+test("disabled and expired codes; PUT keeps what it is not given", async () => {
+  const gift3 = await codeRow("GIFT3");
+  const put = (body) => call(`/api/admin/redeems/${gift3.id}`, { method: "PUT", token: tokens.alice, body });
+
+  assert.equal((await put({ isActive: false, maxUses: "abc" })).status, 200);
+  let row = await codeRow("GIFT3");
+  assert.equal(row.is_active, 0);
+  assert.equal(row.reward_value, 3);
+  assert.equal(row.max_uses, 0);
+  assert.equal(row.expires_at, "2099-12-31 23:59:59");
+  assert.equal((await redeem("erin", "GIFT3", hw(2))).data.code, "code_disabled");
+
+  assert.equal((await put({ expiresAt: "not-a-date" })).data.code, "invalid_expires_at");
+  await put({ isActive: true, expiresAt: null });
+  assert.equal((await codeRow("GIFT3")).expires_at, null);
+
+  await sql("UPDATE gsb_redeem_codes SET expires_at = NOW() - INTERVAL 1 MINUTE WHERE id = ?", [gift3.id]);
+  assert.equal((await redeem("erin", "GIFT3", hw(2))).data.code, "code_expired");
+
+  const toggle = await call(`/api/admin/redeems/${gift3.id}`, { method: "DELETE", token: tokens.alice });
+  assert.equal(toggle.status, 200);
+  assert.equal((await codeRow("GIFT3")).is_active, 0);
+  assert.equal((await call("/api/admin/redeems/999999", { method: "PUT", token: tokens.alice, body: {} })).status, 404);
+});
+
+test("concurrent redeems cannot go past max_uses", async () => {
+  await createCode({ code: "RACE", rewardValue: 1, maxUses: 1 });
+  const names = [1, 2, 3, 4, 5, 6].map((i) => `racer${i}`);
+  for (const name of names) {
+    const r = await call("/api/auth/register", {
+      method: "POST",
+      body: { username: name, email: `${name}@example.com`, password: "password-1" },
+    });
+    assert.equal(r.status, 201);
+    tokens[name] = r.data.token;
+  }
+  const results = await Promise.all(names.map((n, i) => redeem(n, "RACE", hw(100 + i))));
+  assert.equal(results.filter((r) => r.status === 200).length, 1);
+  assert.equal((await codeRow("RACE")).used_count, 1);
+  const [[n]] = await sql("SELECT COUNT(*) AS n FROM gsb_hwid_redeems r JOIN gsb_redeem_codes c ON c.id = r.code_id WHERE c.code = 'RACE'");
+  assert.equal(n.n, 1);
+});
+
+test("guessing redeem codes is rate limited", async () => {
+  for (let i = 0; i < 10; i++) {
+    assert.equal((await redeem("fay", `NOPE${i}`, hw(3))).status, 404);
+  }
+  assert.equal((await redeem("fay", "NOPE10", hw(3))).status, 429);
 });
 
 test("repeated failures are rate limited", async () => {

@@ -75,33 +75,32 @@ CREATE TABLE IF NOT EXISTS `gsb_audit_log` (
 -- Tài khoản admin đầu tiên: đăng ký bình thường trong app, rồi chạy (thay tên đăng nhập):
 -- UPDATE `gsb_users` SET `role` = 'admin' WHERE `username` = 'ten_dang_nhap';
 
--- REDEEM CODES
--- 1. Bảng lưu trữ Danh sách Mã quà tặng (Redeem Codes)
+-- Mã quà tặng: mỗi mã cộng reward_value ngày VIP cho người nhập.
 CREATE TABLE IF NOT EXISTS `gsb_redeem_codes` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `code` VARCHAR(64) NOT NULL,                    -- Mã code (VD: GOSLYNK2026, VIP7DAYS)
-  `reward_type` ENUM('vip_days', 'role') NOT NULL DEFAULT 'vip_days', -- Loại quà
-  `reward_value` INT UNSIGNED NOT NULL DEFAULT 7, -- Giá trị phần thưởng (VD: 7 ngày)
-  `max_uses` INT UNSIGNED NOT NULL DEFAULT 0,     -- Số lượt dùng tối đa (0 = không giới hạn)
-  `used_count` INT UNSIGNED NOT NULL DEFAULT 0,    -- Số lượt đã sử dụng
-  `expires_at` DATETIME NULL DEFAULT NULL,        -- Hạn sử dụng mã (NULL = vĩnh viễn)
-  `is_active` TINYINT(1) NOT NULL DEFAULT 1,      -- Trạng thái (1: Bật, 0: Tắt)
+  `code` VARCHAR(64) NOT NULL,
+  `reward_type` ENUM('vip_days', 'role') NOT NULL DEFAULT 'vip_days',
+  `reward_value` INT UNSIGNED NOT NULL DEFAULT 7,
+  `max_uses` INT UNSIGNED NOT NULL DEFAULT 0,       -- 0 = không giới hạn
+  `used_count` INT UNSIGNED NOT NULL DEFAULT 0,
+  `expires_at` DATETIME NULL DEFAULT NULL,          -- NULL = không hết hạn
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY `uk_gsb_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
--- 2. Bảng lưu vết HWID Ring-0 (Ngăn chặn 1 máy redeem nhiều lần)
+
+-- Lượt đã nhận: mỗi mã chỉ nhận được một lần trên mỗi tài khoản và một lần trên mỗi máy.
+-- hwid_hash do app tự tính nên chỉ để cản một người dùng nhiều tài khoản trên cùng máy.
 CREATE TABLE IF NOT EXISTS `gsb_hwid_redeems` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `code_id` INT UNSIGNED NOT NULL,                 -- Mã code đã sử dụng
-  `user_id` INT UNSIGNED NOT NULL,                 -- Tài khoản sử dụng
-  `hwid_hash` CHAR(64) NOT NULL,                   -- HWID Ring-0 SHA-256 duy nhất của máy
-  `ip` VARCHAR(45) NOT NULL DEFAULT '',            -- IP thực hiện
+  `code_id` INT UNSIGNED NOT NULL,
+  `user_id` INT UNSIGNED NOT NULL,
+  `hwid_hash` CHAR(64) NOT NULL,
+  `ip` VARCHAR(45) NOT NULL DEFAULT '',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  
-  -- RÀNG BUỘC DUY NHẤT: 1 HWID chỉ được dùng 1 Mã Code đúng 1 lần
+  UNIQUE KEY `uk_gsb_user_code` (`user_id`, `code_id`),
   UNIQUE KEY `uk_gsb_hwid_code` (`hwid_hash`, `code_id`),
-  KEY `idx_gsb_hwid` (`hwid_hash`),
+  KEY `idx_gsb_redeem_code` (`code_id`),
   CONSTRAINT `fk_gsb_redeem_code` FOREIGN KEY (`code_id`) REFERENCES `gsb_redeem_codes` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_gsb_redeem_user` FOREIGN KEY (`user_id`) REFERENCES `gsb_users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-----------------------------------------------------------------------------
