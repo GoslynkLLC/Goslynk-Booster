@@ -2,7 +2,7 @@ import logo from "../assets/goslynk-mark.png";
 
 const ROLE_LABEL = { admin: "Admin", developer: "Developer", vip: "VIP", user: "Thành viên" };
 
-export default function AppHeader({ user, tab, onTab, boostedCount, maxSlots, onAdmin, onLogout }) {
+export default function AppHeader({ user, tab, onTab, boostedCount, maxSlots, onAdmin, onAdminRedeem, onLogout, onOpenRedeemModal }) {
   const name = user.displayName || user.username;
   return (
     <header className="app-header">
@@ -48,10 +48,24 @@ export default function AppHeader({ user, tab, onTab, boostedCount, maxSlots, on
             Quản trị
           </button>
         ) : null}
+        {onAdminRedeem ? (
+          <button type="button" className="btn ghost sm" onClick={onAdminRedeem}>
+            Quản lý Code
+          </button>
+        ) : null}
         <button type="button" className="btn ghost sm" onClick={onLogout}>
           Đăng xuất
         </button>
       </div>
+      {/* --- Thêm Nút Redeem vào thanh Header --- */}
+      <button
+        type="button"
+        className="btn ghost sm"
+        style={{ borderColor: 'var(--primary)', color: 'var(--primary)', marginLeft: '8px' }}
+        onClick={onOpenRedeemModal}
+      >
+        🎁 Nhập Code
+      </button>
     </header>
   );
 }

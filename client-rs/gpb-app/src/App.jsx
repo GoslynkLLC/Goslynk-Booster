@@ -20,6 +20,9 @@ import RegisterScreen from "./screens/RegisterScreen.jsx";
 import HomeScreen from "./screens/HomeScreen.jsx";
 import GamesScreen from "./screens/GamesScreen.jsx";
 import AdminScreen from "./screens/AdminScreen.jsx";
+import RedeemModal from "./components/RedeemModal.jsx";
+import AdminRedeemScreen from "./screens/AdminRedeemScreen.jsx";
+
 
 const SESSION_KEY = "gsb-session-v2";
 const RELAY_OVERRIDE_KEY = "gsb-relay-override-v1";
@@ -65,6 +68,8 @@ export default function App() {
   const [regions, setRegions] = useState(() => loadJson(REGIONS_KEY, {}));
   const [notice, setNotice] = useState("");
   const [bootError, setBootError] = useState("");
+  const [showRedeemModal, setShowRedeemModal] = useState(false);
+
 
   const [status, setStatus] = useState(IDLE_STATUS);
   // Game ids in the order they took a slot; refs mirror state so quick clicks see the latest.
@@ -92,7 +97,7 @@ export default function App() {
 
   const endSession = useCallback(
     (message = "") => {
-      apiDisconnect().catch(() => {});
+      apiDisconnect().catch(() => { });
       setToken("");
       saveJson(SESSION_KEY, null);
       setUser(null);
@@ -194,7 +199,7 @@ export default function App() {
   );
 
   const onLogout = useCallback(() => {
-    apiLogout().catch(() => {});
+    apiLogout().catch(() => { });
     endSession();
   }, [endSession]);
 
@@ -308,8 +313,8 @@ export default function App() {
   const inShell = (screen === "home" || screen === "games") && user;
 
   return (
-    <div className={`app${screen === "admin" ? " wide" : ""}${inShell ? " shell" : ""}`}>
-      <UpdateBanner onBeforeInstall={() => apiDisconnect().catch(() => {})} />
+    <div className={`app${screen === "admin-redeem" ? " wide admin-redeem" : screen === "admin" ? " wide" : ""}${inShell ? " shell" : ""}`}>
+      <UpdateBanner onBeforeInstall={() => apiDisconnect().catch(() => { })} />
 
       {inShell ? (
         <AppHeader
@@ -319,7 +324,9 @@ export default function App() {
           boostedCount={boosted.length}
           maxSlots={MAX_SLOTS}
           onAdmin={user.role === "admin" ? () => setScreen("admin") : null}
+          onAdminRedeem={user.role === "admin" ? () => setScreen("admin-redeem") : null}
           onLogout={onLogout}
+          onOpenRedeemModal={() => setShowRedeemModal(true)}
         />
       ) : null}
 
@@ -374,9 +381,20 @@ export default function App() {
           onPick={onPick}
         />
       )}
-
+      {showRedeemModal && user && (
+        <RedeemModal
+          onClose={() => setShowRedeemModal(false)}
+          onSuccess={(result) => {
+            console.log("Đã nhận quà:", result);
+          }}
+        />
+      )}
       {screen === "admin" && user?.role === "admin" && (
         <AdminScreen me={user} onChanged={refreshMe} onSessionRejected={endSession} onBack={() => setScreen("home")} />
+      )}
+
+      {screen === "admin-redeem" && user?.role === "admin" && (
+        <AdminRedeemScreen onBack={() => setScreen("home")} />
       )}
     </div>
   );
