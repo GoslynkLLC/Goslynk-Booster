@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { adminRedeemApi, errMsg, isSessionRejected } from "../api.js";
+import { adminRedeemApi } from "../api.js";
+import { REWARD_LABEL, shortDate } from "../format.js";
 
-/** "2026-10-05 23:59:59" (server time) as "05/10/2026". */
-const shortDate = (s) => s.slice(0, 10).split("-").reverse().join("/");
-
-export default function AdminRedeemScreen({ onSessionRejected, onBack }) {
+export default function RedeemCodesTab({ guard }) {
   const [codes, setCodes] = useState(null);
   const [error, setError] = useState("");
   // null: no dialog, {}: create, a code: edit it.
   const [editing, setEditing] = useState(null);
-
-  const guard = useCallback(
-    (e) => {
-      if (isSessionRejected(e) || e?.code === "forbidden") onSessionRejected(e.message);
-      else setError(errMsg(e));
-    },
-    [onSessionRejected],
-  );
 
   const load = useCallback(() => {
     adminRedeemApi
@@ -25,7 +15,7 @@ export default function AdminRedeemScreen({ onSessionRejected, onBack }) {
         setCodes(r.codes);
         setError("");
       })
-      .catch(guard);
+      .catch((e) => guard(e, setError));
   }, [guard]);
 
   useEffect(load, [load]);
@@ -35,40 +25,32 @@ export default function AdminRedeemScreen({ onSessionRejected, onBack }) {
       await adminRedeemApi.toggle(c.id);
       load();
     } catch (e) {
-      guard(e);
+      guard(e, setError);
     }
   }
 
   return (
-    <section className="screen">
-      <header className="brand row">
-        <div>
-          <h1>Mã quà tặng</h1>
-          <p className="tag">Mỗi mã cộng ngày VIP, nhận được một lần trên mỗi tài khoản và mỗi máy</p>
-        </div>
-        <div className="row-actions">
+    <>
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <p className="panel-title">Mã quà tặng</p>
+            <p className="hint">Mỗi mã cộng ngày VIP hoặc VIP+, nhận được một lần trên mỗi tài khoản và mỗi máy.</p>
+          </div>
           <button type="button" className="btn primary sm" onClick={() => setEditing({})}>
             Tạo mã
           </button>
-          <button type="button" className="btn ghost sm" onClick={onBack}>
-            Menu
-          </button>
         </div>
-      </header>
 
-      {error ? <p className="modal-message error">{error}</p> : null}
-
-      <div className="stats">
         {codes === null ? (
-          <p className="muted">Đang tải…</p>
+          <p className="hint">Đang tải…</p>
         ) : codes.length === 0 ? (
-          <p className="muted">Chưa có mã nào. Bấm "Tạo mã" để tạo.</p>
+          <p className="hint">Chưa có mã nào.</p>
         ) : (
           <table className="redeem-table">
             <thead>
               <tr>
                 <th>Mã</th>
-                <th>Quà</th>
                 <th>Đã dùng</th>
                 <th>Hết hạn</th>
                 <th>Trạng thái</th>
@@ -82,8 +64,10 @@ export default function AdminRedeemScreen({ onSessionRejected, onBack }) {
                     <button type="button" className="code-link" onClick={() => setEditing(c)} title="Sửa mã">
                       {c.code}
                     </button>
+                    <span className="code-reward">
+                      +{c.rewardValue} ngày {REWARD_LABEL[c.rewardType] || c.rewardType}
+                    </span>
                   </td>
-                  <td>+{c.rewardValue} ngày VIP</td>
                   <td>
                     {c.usedCount} / {c.maxUses === 0 ? "∞" : c.maxUses}
                   </td>
@@ -116,25 +100,28 @@ export default function AdminRedeemScreen({ onSessionRejected, onBack }) {
             </tbody>
           </table>
         )}
-      </div>
+      </section>
+
+      {error ? <p className="error">{error}</p> : null}
 
       {editing ? (
         <CodeDialog
           code={editing.id ? editing : null}
+          guard={guard}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
             load();
           }}
-          onSessionRejected={onSessionRejected}
         />
       ) : null}
-    </section>
+    </>
   );
 }
 
-function CodeDialog({ code, onClose, onSaved, onSessionRejected }) {
+function CodeDialog({ code, guard, onClose, onSaved }) {
   const [name, setName] = useState(code?.code ?? "");
+  const [rewardType, setRewardType] = useState(code?.rewardType ?? "vip_days");
   const [days, setDays] = useState(String(code?.rewardValue ?? 7));
   const [maxUses, setMaxUses] = useState(String(code?.maxUses ?? 0));
   const [expiresAt, setExpiresAt] = useState(code?.expiresAt ? code.expiresAt.slice(0, 10) : "");
@@ -149,11 +136,10 @@ function CodeDialog({ code, onClose, onSaved, onSessionRejected }) {
     const body = { rewardValue: Number(days), maxUses: Number(maxUses), expiresAt: expiresAt || null };
     try {
       if (code) await adminRedeemApi.update(code.id, { ...body, isActive: active });
-      else await adminRedeemApi.create({ ...body, code: name.trim().toUpperCase() });
+      else await adminRedeemApi.create({ ...body, rewardType, code: name.trim().toUpperCase() });
       onSaved();
     } catch (err) {
-      if (isSessionRejected(err) || err?.code === "forbidden") onSessionRejected(err.message);
-      else setError(errMsg(err));
+      guard(err, setError);
     } finally {
       setBusy(false);
     }
@@ -187,18 +173,27 @@ function CodeDialog({ code, onClose, onSaved, onSessionRejected }) {
           )}
           <div className="field-row">
             <label>
-              Số ngày VIP
+              Loại quà
+              <select value={rewardType} onChange={(e) => setRewardType(e.target.value)} disabled={!!code}>
+                <option value="vip_days">Ngày VIP (1 thiết bị)</option>
+                <option value="vip_plus_days">Ngày VIP+ (2 thiết bị)</option>
+              </select>
+            </label>
+            <label>
+              Số ngày {REWARD_LABEL[rewardType] || ""}
               <input type="number" min={1} max={3650} value={days} onChange={(e) => setDays(e.target.value)} />
             </label>
+          </div>
+          <div className="field-row">
             <label>
               Lượt dùng (0 = không giới hạn)
               <input type="number" min={0} value={maxUses} onChange={(e) => setMaxUses(e.target.value)} />
             </label>
+            <label>
+              Hết hạn cuối ngày (trống = không)
+              <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+            </label>
           </div>
-          <label>
-            Hết hạn cuối ngày (để trống = không hết hạn)
-            <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
-          </label>
           {code ? (
             <label>
               Trạng thái

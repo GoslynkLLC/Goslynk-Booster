@@ -359,7 +359,6 @@ rm -f "/tmp/relayd.service.$$"
 systemctl daemon-reload
 systemctl enable relayd
 
-# Quen me mat restart bao sao mai deo chay 😢
 echo "==> Restarting relayd so the new binary is the one actually running"
 systemctl restart relayd
 

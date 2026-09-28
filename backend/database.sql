@@ -10,8 +10,9 @@ CREATE TABLE IF NOT EXISTS `gsb_users` (
   `email` VARCHAR(191) NOT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
   `display_name` VARCHAR(64) NOT NULL DEFAULT '',
-  `role` ENUM('user', 'vip', 'developer', 'admin') NOT NULL DEFAULT 'user',
-  `vip_until` DATETIME NULL DEFAULT NULL,
+  `role` ENUM('user', 'vip', 'vip_plus', 'developer', 'admin') NOT NULL DEFAULT 'user',
+  `vip_until` DATETIME NULL DEFAULT NULL,           -- ngày VIP từ mã quà
+  `vip_plus_until` DATETIME NULL DEFAULT NULL,      -- ngày VIP+ từ mã quà
   `is_locked` TINYINT(1) NOT NULL DEFAULT 0,
   `lock_reason` VARCHAR(255) NOT NULL DEFAULT '',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS `gsb_sessions` (
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `last_seen_at` TIMESTAMP NULL DEFAULT NULL,
   `expires_at` DATETIME NOT NULL,
+  `ended_reason` VARCHAR(16) NOT NULL DEFAULT '',   -- 'elsewhere': tài khoản thường đăng nhập ở máy khác
   UNIQUE KEY `uk_gsb_token_hash` (`token_hash`),
   KEY `idx_gsb_sess_user` (`user_id`),
   CONSTRAINT `fk_gsb_sess_user` FOREIGN KEY (`user_id`) REFERENCES `gsb_users` (`id`) ON DELETE CASCADE
@@ -60,7 +62,6 @@ CREATE TABLE IF NOT EXISTS `gsb_login_attempts` (
   KEY `idx_gsb_attempt_ip_time` (`ip`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Lịch sử thao tác trong admin panel.
 CREATE TABLE IF NOT EXISTS `gsb_audit_log` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `actor_id` INT UNSIGNED NULL,
@@ -75,11 +76,11 @@ CREATE TABLE IF NOT EXISTS `gsb_audit_log` (
 -- Tài khoản admin đầu tiên: đăng ký bình thường trong app, rồi chạy (thay tên đăng nhập):
 -- UPDATE `gsb_users` SET `role` = 'admin' WHERE `username` = 'ten_dang_nhap';
 
--- Mã quà tặng: mỗi mã cộng reward_value ngày VIP cho người nhập.
+-- Mã quà tặng: mỗi mã cộng reward_value ngày VIP (vip_days) hoặc VIP+ (vip_plus_days).
 CREATE TABLE IF NOT EXISTS `gsb_redeem_codes` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `code` VARCHAR(64) NOT NULL,
-  `reward_type` ENUM('vip_days', 'role') NOT NULL DEFAULT 'vip_days',
+  `reward_type` ENUM('vip_days', 'vip_plus_days', 'role') NOT NULL DEFAULT 'vip_days',
   `reward_value` INT UNSIGNED NOT NULL DEFAULT 7,
   `max_uses` INT UNSIGNED NOT NULL DEFAULT 0,       -- 0 = không giới hạn
   `used_count` INT UNSIGNED NOT NULL DEFAULT 0,

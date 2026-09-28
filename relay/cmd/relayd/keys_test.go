@@ -1,9 +1,5 @@
 package main
 
-// Key loading had no tests at all until internal/keyfile was extracted out from under it. These
-// cover the two properties whose failure would be worst and least obvious from the relay's own
-// logs.
-
 import (
 	"os"
 	"path/filepath"

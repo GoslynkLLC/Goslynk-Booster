@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { adminApi, errMsg, isSessionRejected } from "../api.js";
+import RedeemCodesTab from "./RedeemCodesTab.jsx";
 
-const ROLES = ["user", "vip", "developer", "admin"];
+const ROLES = ["user", "vip", "vip_plus", "developer", "admin"];
 const TABS = [
   ["general", "Chung"],
   ["users", "Tài khoản"],
+  ["redeem", "Mã quà"],
   ["audit", "Lịch sử"],
 ];
 const ACTION_LABEL = {
@@ -14,6 +16,9 @@ const ACTION_LABEL = {
   unlock: "Mở khóa",
   revoke_sessions: "Đăng xuất thiết bị",
   setting: "Cài đặt",
+  profile: "Sửa hồ sơ",
+  password: "Đổi mật khẩu",
+  signed_out_elsewhere: "Đăng nhập máy khác",
   redeem_code: "Nhận mã quà",
   redeem_invalid: "Nhập sai mã",
   create_redeem_code: "Tạo mã quà",
@@ -63,12 +68,11 @@ export default function AdminScreen({ me, onChanged, onSessionRejected, onBack }
 
       {tab === "general" && <GeneralTab guard={guard} onChanged={onChanged} />}
       {tab === "users" && <UsersTab me={me} guard={guard} />}
+      {tab === "redeem" && <RedeemCodesTab guard={guard} />}
       {tab === "audit" && <AuditTab guard={guard} />}
     </section>
   );
 }
-
-// ------------------------------------------------------------------ general
 
 function GeneralTab({ guard, onChanged }) {
   const [s, setS] = useState(null);
@@ -217,8 +221,6 @@ function GeneralTab({ guard, onChanged }) {
   );
 }
 
-// ------------------------------------------------------------------ users
-
 function UsersTab({ me, guard }) {
   const [q, setQ] = useState("");
   const [role, setRole] = useState("");
@@ -284,7 +286,7 @@ function UsersTab({ me, guard }) {
       </div>
       {c ? (
         <p className="hint">
-          {data.total} tài khoản · admin {c.admin} · developer {c.developer} · vip {c.vip} · user {c.user}
+          {data.total} tài khoản · admin {c.admin} · developer {c.developer} · vip+ {c.vip_plus ?? 0} · vip {c.vip} · user {c.user}
         </p>
       ) : null}
       {error ? <p className="error">{error}</p> : null}
@@ -411,8 +413,6 @@ function UsersTab({ me, guard }) {
     </>
   );
 }
-
-// ------------------------------------------------------------------ audit
 
 function AuditTab({ guard }) {
   const [entries, setEntries] = useState(null);

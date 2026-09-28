@@ -27,6 +27,7 @@ import {
   recordFailure,
   audit,
   USER_SELECT,
+  endExtraSessions,
 } from "./lib.js";
 
 const USERNAME_RE = /^[A-Za-z0-9_.]{3,32}$/;
@@ -38,6 +39,11 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const REDEEM_MAX_MISSES = 10;
 const REDEEM_MISS_WINDOW_MIN = 15;
 const MAX_VIP_DAYS = 3650;
+/** What each redeem code reward_type adds days to. */
+const REWARDS = {
+  vip_days: { column: "vip_until", label: "VIP" },
+  vip_plus_days: { column: "vip_plus_until", label: "VIP+" },
+};
 
 const toInt = (v, fallback) => {
   const n = Number.parseInt(v, 10);
@@ -61,6 +67,7 @@ function userRow(u) {
     // The stored role, which is what the admin edits; publicUser reports an active VIP as "vip".
     role: u.role,
     vipUntil: u.vip_until ?? null,
+    vipPlusUntil: u.vip_plus_until ?? null,
     isLocked: Number(u.is_locked) === 1,
     lockReason: u.lock_reason,
     createdAt: u.created_at,
@@ -91,7 +98,6 @@ export function createApp() {
     next();
   });
 
-  // ---------------------------------------------------------------- API
   const api = express.Router();
 
   api.use((req, res, next) => {
@@ -155,7 +161,10 @@ export function createApp() {
     if (block) failBlock(block);
 
     await run("UPDATE gsb_users SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?", [ip, user.id]);
-    res.json({ ok: true, ...(await issueToken(user.id, device, ip)), ...appPayload(user, s) });
+    const { sessionId: _, ...session } = await issueToken(user.id, device, ip);
+    const ended = await endExtraSessions(user);
+    if (ended) await audit(user.id, "signed_out_elsewhere", user.username, `${ended} thiết bị cũ`, ip);
+    res.json({ ok: true, ...session, ...appPayload(user, s) });
   });
 
   api.post("/auth/register", async (req, res) => {
@@ -216,7 +225,8 @@ export function createApp() {
       return res.status(201).json({ ok: true, created: true, blocked: { code: block.code, message: block.message } });
     }
     await run("UPDATE gsb_users SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?", [ip, id]);
-    res.status(201).json({ ok: true, created: true, ...(await issueToken(id, device, ip)), ...appPayload(user, s) });
+    const { sessionId: _, ...session } = await issueToken(id, device, ip);
+    res.status(201).json({ ok: true, created: true, ...session, ...appPayload(user, s) });
   });
 
   // Asked by the app on start and every minute while open, so turning developer mode on (or
@@ -226,6 +236,8 @@ export function createApp() {
     const s = await settings();
     const block = appBlock(user, s);
     if (block) failBlock(block);
+    // Catches accounts whose device limit dropped (VIP+ ran out, role lowered) since they signed in.
+    await endExtraSessions(user);
     res.json({ ok: true, ...appPayload(user, s) });
   });
 
@@ -233,6 +245,93 @@ export function createApp() {
     const token = bearer(req);
     if (token) await run("DELETE FROM gsb_sessions WHERE token_hash = ?", [sha256(token)]);
     res.json({ ok: true });
+  });
+
+  /** The signed-in user and settings, or the same refusal /auth/me would give. */
+  async function activeUser(req) {
+    const user = await auth(req);
+    const s = await settings();
+    const block = appBlock(user, s);
+    if (block) failBlock(block);
+    return { user, s };
+  }
+
+  // Shares the login failure counter, so it cannot be used to guess the password either.
+  async function checkPassword(req, user, password) {
+    if (await tooManyFailures(req.ip)) {
+      fail("Nhập sai mật khẩu quá nhiều lần, vui lòng thử lại sau ít phút.", 429, "rate_limited");
+    }
+    if (!(await verifyPassword(password, user.password_hash))) {
+      await recordFailure(req.ip);
+      fail("Mật khẩu hiện tại không đúng.", 403, "wrong_password");
+    }
+  }
+
+  // Changing the email needs the current password; the display name does not.
+  api.post("/auth/profile", async (req, res) => {
+    const { user, s } = await activeUser(req);
+    const body = req.body ?? {};
+    const displayName = body.displayName === undefined ? user.display_name : str(body, "displayName", 64);
+    const email = body.email === undefined ? user.email : str(body, "email", 191).toLowerCase();
+
+    const changes = [];
+    if (displayName !== user.display_name) changes.push("tên hiển thị");
+    if (email !== user.email) {
+      if (!EMAIL_RE.test(email)) fail("Email không hợp lệ.", 422, "invalid_email");
+      await checkPassword(req, user, typeof body.currentPassword === "string" ? body.currentPassword : "");
+      changes.push("email");
+    }
+    if (changes.length) {
+      try {
+        await run("UPDATE gsb_users SET display_name = ?, email = ? WHERE id = ?", [displayName, email, user.id]);
+      } catch (e) {
+        if (e.code === "ER_DUP_ENTRY") fail("Email đã được dùng.", 409, "email_taken");
+        throw e;
+      }
+      await audit(user.id, "profile", user.username, changes.join(", "), req.ip);
+    }
+    const fresh = await one(`${USER_SELECT} WHERE id = ?`, [user.id]);
+    res.json({ ok: true, ...appPayload(fresh, s) });
+  });
+
+  api.post("/auth/password", async (req, res) => {
+    const { user } = await activeUser(req);
+    const body = req.body ?? {};
+    const next = typeof body.newPassword === "string" ? body.newPassword : "";
+    if (next.length < 8 || next.length > 200) fail("Mật khẩu mới tối thiểu 8 ký tự.", 422, "invalid_password");
+    await checkPassword(req, user, typeof body.currentPassword === "string" ? body.currentPassword : "");
+
+    await run("UPDATE gsb_users SET password_hash = ? WHERE id = ?", [await hashPassword(next), user.id]);
+    const r = await run("DELETE FROM gsb_sessions WHERE user_id = ? AND id <> ?", [user.id, user.session_id]);
+    await audit(user.id, "password", user.username, `${r.affectedRows} thiết bị khác bị đăng xuất`, req.ip);
+    res.json({ ok: true, signedOut: r.affectedRows });
+  });
+
+  api.get("/auth/sessions", async (req, res) => {
+    const { user } = await activeUser(req);
+    const rows = await all(
+      `SELECT id, device_name, ip, created_at, last_seen_at FROM gsb_sessions
+        WHERE user_id = ? AND expires_at > NOW() ORDER BY COALESCE(last_seen_at, created_at) DESC`,
+      [user.id],
+    );
+    res.json({
+      ok: true,
+      sessions: rows.map((r) => ({
+        id: Number(r.id),
+        device: r.device_name,
+        ip: r.ip,
+        createdAt: r.created_at,
+        lastSeenAt: r.last_seen_at,
+        current: Number(r.id) === Number(user.session_id),
+      })),
+    });
+  });
+
+  api.post("/auth/sessions/revoke-others", async (req, res) => {
+    const { user } = await activeUser(req);
+    const r = await run("DELETE FROM gsb_sessions WHERE user_id = ? AND id <> ?", [user.id, user.session_id]);
+    await audit(user.id, "revoke_sessions", user.username, `${r.affectedRows} thiết bị (tự đăng xuất)`, req.ip);
+    res.json({ ok: true, signedOut: r.affectedRows });
   });
 
   // Each code pays out once per account and once per machine. The machine id is a hash the app
@@ -276,7 +375,8 @@ export function createApp() {
       if (!c) return { miss: true };
       if (Number(c.is_active) !== 1) fail("Mã quà tặng này đã bị vô hiệu hóa.", 410, "code_disabled");
       if (Number(c.expired) === 1) fail("Mã quà tặng này đã hết hạn sử dụng.", 410, "code_expired");
-      if (c.reward_type !== "vip_days") fail("Loại quà của mã này chưa được hỗ trợ.", 422, "unsupported_reward");
+      const reward = REWARDS[c.reward_type];
+      if (!reward) fail("Loại quà của mã này chưa được hỗ trợ.", 422, "unsupported_reward");
       if (c.max_uses > 0 && c.used_count >= c.max_uses) {
         fail("Mã quà tặng này đã hết lượt sử dụng.", 410, "code_limit_reached");
       }
@@ -302,32 +402,30 @@ export function createApp() {
         ip,
       ]);
       await conn.execute("UPDATE gsb_redeem_codes SET used_count = used_count + 1 WHERE id = ?", [c.id]);
-      // An unexpired VIP is extended from its end, an expired one from now.
+      // Unexpired days are extended from their end, expired ones from now.
+      const col = reward.column;
       await conn.execute(
-        `UPDATE gsb_users
-            SET vip_until = DATE_ADD(GREATEST(COALESCE(vip_until, NOW()), NOW()), INTERVAL ? DAY)
-          WHERE id = ?`,
+        `UPDATE gsb_users SET ${col} = DATE_ADD(GREATEST(COALESCE(${col}, NOW()), NOW()), INTERVAL ? DAY) WHERE id = ?`,
         [c.reward_value, user.id],
       );
-      const [[u]] = await conn.execute("SELECT vip_until FROM gsb_users WHERE id = ?", [user.id]);
-      return { days: Number(c.reward_value), vipUntil: u.vip_until };
+      const [[u]] = await conn.execute(`SELECT ${col} AS until FROM gsb_users WHERE id = ?`, [user.id]);
+      return { type: c.reward_type, label: reward.label, days: Number(c.reward_value), until: u.until };
     });
 
     if (result.miss) {
       await audit(user.id, "redeem_invalid", code, "", ip);
       fail("Mã quà tặng không hợp lệ hoặc không tồn tại.", 404, "invalid_code");
     }
-    await audit(user.id, "redeem_code", code, `+${result.days} vip_days -> ${result.vipUntil}`, ip);
+    await audit(user.id, "redeem_code", code, `+${result.days} ${result.type} -> ${result.until}`, ip);
     res.json({
       ok: true,
-      message: `Nhận quà thành công! Bạn được cộng ${result.days} ngày VIP (đến ${result.vipUntil}).`,
-      rewardType: "vip_days",
+      message: `Nhận quà thành công! Bạn được cộng ${result.days} ngày ${result.label} (đến ${result.until}).`,
+      rewardType: result.type,
       rewardValue: result.days,
-      vipUntil: result.vipUntil,
+      until: result.until,
     });
   });
 
-  // ---------------------------------------------------------------- admin
   const admin = express.Router();
   admin.use(async (req, res, next) => {
     const u = await auth(req);
@@ -463,7 +561,6 @@ export function createApp() {
       })),
     });
   });
-  // ---------------------------------------------------------------- redeem codes
 
   admin.get("/redeems", async (req, res) => {
     const rows = await all(
@@ -495,6 +592,7 @@ export function createApp() {
     if (!CODE_RE.test(code)) {
       fail("Mã code 3-64 ký tự, chỉ gồm chữ in hoa, số, dấu chấm và gạch dưới.", 422, "invalid_code");
     }
+    const rewardType = body.rewardType === "vip_plus_days" ? "vip_plus_days" : "vip_days";
     const rewardValue = Math.min(MAX_VIP_DAYS, Math.max(1, toInt(body.rewardValue, 7)));
     const maxUses = Math.max(0, toInt(body.maxUses, 0));
     const expiresAt = parseExpiry(body.expiresAt ?? null);
@@ -504,14 +602,14 @@ export function createApp() {
 
     try {
       await run(
-        "INSERT INTO gsb_redeem_codes (code, reward_type, reward_value, max_uses, expires_at) VALUES (?, 'vip_days', ?, ?, ?)",
-        [code, rewardValue, maxUses, expiresAt],
+        "INSERT INTO gsb_redeem_codes (code, reward_type, reward_value, max_uses, expires_at) VALUES (?, ?, ?, ?, ?)",
+        [code, rewardType, rewardValue, maxUses, expiresAt],
       );
     } catch (e) {
       if (e.code === "ER_DUP_ENTRY") fail("Mã code này đã tồn tại.", 409, "code_exists");
       throw e;
     }
-    await audit(req.admin.id, "create_redeem_code", code, `+${rewardValue} vip_days, max=${maxUses}`, req.ip);
+    await audit(req.admin.id, "create_redeem_code", code, `+${rewardValue} ${rewardType}, max=${maxUses}`, req.ip);
     res.status(201).json({ ok: true, message: "Đã tạo mã quà tặng." });
   });
 
@@ -538,7 +636,7 @@ export function createApp() {
       req.admin.id,
       "update_redeem_code",
       existing.code,
-      `+${rewardValue} vip_days, max=${maxUses}, exp=${expiresAt ?? "never"}, active=${isActive}`,
+      `+${rewardValue} ${existing.reward_type}, max=${maxUses}, exp=${expiresAt ?? "never"}, active=${isActive}`,
       req.ip,
     );
     res.json({ ok: true, message: "Đã lưu mã quà tặng." });

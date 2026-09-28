@@ -15,8 +15,6 @@ async function invoke(cmd, args) {
   return tauriInvoke(cmd, args);
 }
 
-// ------------------------------------------------------------------ accounts API
-
 export class ApiError extends Error {
   constructor(message, status, code) {
     super(message);
@@ -85,6 +83,14 @@ export function apiLogout() {
   return http("auth/logout", { method: "POST" });
 }
 
+export const profileApi = {
+  update: (patch) => http("auth/profile", { method: "POST", body: patch }),
+  changePassword: (currentPassword, newPassword) =>
+    http("auth/password", { method: "POST", body: { currentPassword, newPassword } }),
+  sessions: () => http("auth/sessions"),
+  revokeOthers: () => http("auth/sessions/revoke-others", { method: "POST" }),
+};
+
 export const adminApi = {
   settings: () => http("admin/settings"),
   saveSettings: (patch) => http("admin/settings", { method: "POST", body: patch }),
@@ -93,8 +99,6 @@ export const adminApi = {
   updateUser: (id, patch) => http("admin/users", { method: "POST", body: { id, ...patch } }),
   audit: () => http("admin/audit"),
 };
-
-// ------------------------------------------------------------------ tunnel (Tauri)
 
 export function apiListGames() {
   return invoke("list_games");

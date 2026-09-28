@@ -30,7 +30,6 @@ func TestGameTrafficIsNeverLimited(t *testing.T) {
 			t.Fatalf("a game packet was dropped after %d packets (%.1f seconds in)",
 				i, float64(i)/gamePacketsPerS)
 		}
-		// One packet's worth of time at the game's rate.
 		advance(b, time.Second/gamePacketsPerS, defaultRate, defaultBurst)
 	}
 	if got := b.limited.Load(); got != 0 {

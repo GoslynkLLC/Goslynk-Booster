@@ -189,8 +189,6 @@ input:disabled {
   white-space: pre-wrap;
 }
 
-/* ------------------------------------------------------------ app shell */
-
 .app.shell {
   max-width: 1120px;
   padding-top: 0;
@@ -274,11 +272,100 @@ input:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.profile-menu {
+  position: relative;
+  min-width: 0;
+}
+
 .profile {
+  appearance: none;
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.profile:hover,
+.profile.open {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--line);
+}
+
+.caret {
+  flex-shrink: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--muted);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.menu-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.78rem;
+}
+
+.menu-name {
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.menu-vip {
+  color: #9fe7b8;
+}
+
+.menu button {
+  appearance: none;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu button:hover {
+  background: #232323;
+}
+
+.menu button.danger-text {
+  color: #f0a0a0;
+}
+
+.menu hr {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
 }
 
 .avatar {
@@ -377,8 +464,6 @@ input:disabled {
   color: var(--muted);
   font-size: 0.9rem;
 }
-
-/* ------------------------------------------------------------ game grid */
 
 .game-grid {
   display: grid;
@@ -565,7 +650,7 @@ input:disabled {
     row-gap: 10px;
   }
 
-  .profile {
+  .profile-menu {
     margin-left: auto;
   }
 
@@ -590,8 +675,6 @@ input:disabled {
     gap: 10px;
   }
 }
-
-/* ------------------------------------------------------------ home: boost slots */
 
 .slots {
   display: grid;
@@ -793,8 +876,6 @@ input:disabled {
   color: #fff;
 }
 
-/* ------------------------------------------------------------ home: tunnel stats */
-
 .stats {
   background: var(--card);
   border: 1px solid var(--line);
@@ -929,14 +1010,8 @@ input:disabled {
   font-weight: 500;
 }
 
-/* ------------------------------------------------------------ accounts and admin */
-
 .app.wide {
   max-width: 560px;
-}
-
-.app.wide.xl {
-  max-width: 850px;
 }
 
 textarea,
@@ -1065,6 +1140,12 @@ select:focus {
 .role-badge.vip {
   color: #d7a8ff;
   border-color: #4a2d66;
+}
+
+.role-badge.vip_plus {
+  color: #ffd76a;
+  border-color: #6b5518;
+  background: rgba(255, 215, 106, 0.08);
 }
 
 .row-actions {
@@ -1501,7 +1582,7 @@ label.check input {
 
 .redeem-table th,
 .redeem-table td {
-  padding: 10px 12px;
+  padding: 8px 6px;
   text-align: left;
   border-bottom: 1px solid var(--line);
 }
@@ -1513,6 +1594,12 @@ label.check input {
 
 .redeem-table tr.off td {
   opacity: 0.6;
+}
+
+.redeem-table .code-reward {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
 }
 
 .redeem-table .code-link {
@@ -1551,4 +1638,84 @@ label.check input {
 .pill.expired {
   color: #e67e22;
   background: rgba(230, 126, 34, 0.15);
+}
+
+.vip-gate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-screen form.panel .btn.sm {
+  align-self: flex-end;
+}
+
+.profile-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+}
+
+.profile-card .btn.sm {
+  align-self: center;
+}
+
+.avatar.lg {
+  width: 52px;
+  height: 52px;
+  font-size: 1.3rem;
+}
+
+.profile-card-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: 0.82rem;
+}
+
+.profile-card-name {
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.profile-screen .field-row {
+  display: flex;
+  gap: 12px;
+}
+
+.profile-screen .field-row label {
+  flex: 1;
+}
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.8rem;
+}
+
+.session-list li:last-child {
+  border-bottom: 0;
+}
+
+.session-device {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.86rem;
 }

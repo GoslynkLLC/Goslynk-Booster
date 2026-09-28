@@ -246,7 +246,6 @@ impl WinRouteTable {
 
 impl RouteTable for WinRouteTable {
     fn pin_host(&mut self, host: Ipv4Addr, via_gateway: Ipv4Addr, _iface: &str) -> Result<(), NetError> {
-        // route add HOST mask 255.255.255.255 GATEWAY
         let mut args = vec![
             "add".into(),
             host.to_string(),

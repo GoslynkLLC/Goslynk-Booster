@@ -96,8 +96,6 @@ choose_relay() {
     }'
 }
 
-# ------------------------------------------------------------------------------------ forwarding
-
 apply_forwarding() { # apply_forwarding <relay ip> <relay port> <listen port> <wan> <changed 0|1>
   local relay=$1 relay_port=$2 port=$3 wan=$4 changed=$5
   local tag="gpb-entry-${port}"
@@ -203,8 +201,6 @@ SYSCTL
   fi
   iptables -t nat -S | grep -- "--comment ${tag}\b" | sed 's/^/    /' || true
 }
-
-# ------------------------------------------------------------------------------------------ main
 
 main() {
   local port=51820 pinned="" wan="" arg

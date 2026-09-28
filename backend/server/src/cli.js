@@ -1,6 +1,6 @@
 // Server-side maintenance, run on the VPS:
 //   node --env-file=/etc/goslynk-api/env src/cli.js migrate
-//   node --env-file=/etc/goslynk-api/env src/cli.js set-role <username> <user|vip|developer|admin>
+//   node --env-file=/etc/goslynk-api/env src/cli.js set-role <username> <user|vip|vip_plus|developer|admin>
 //   node --env-file=/etc/goslynk-api/env src/cli.js set-setting <key> <value>
 //   node --env-file=/etc/goslynk-api/env src/cli.js set-setting relay_psk --from-file /etc/gpb/psk
 import fs from "node:fs";

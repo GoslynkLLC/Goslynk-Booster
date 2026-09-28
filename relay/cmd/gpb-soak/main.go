@@ -234,7 +234,6 @@ func (c *client) dial() (*net.UDPConn, protocol.HandshakeResult, time.Duration, 
 
 	var last error
 
-	// Cho chay toi da 4 lan thoi chay lam chay lon
 	for attempt := 1; attempt <= 4; attempt++ {
 		req, nonce, err := protocol.BuildHandshakeReq(c.psk, c.clientID, time.Now())
 		if err != nil {
@@ -693,8 +692,6 @@ func ms(d time.Duration) string {
 	}
 	return fmt.Sprintf("%.1fms", v)
 }
-
-// -------------------------------------------------------------------- misc
 
 // buildEchoRequest makes an ICMP echo request carrying its own send time, so the round trip can
 // be measured without keeping a table of outstanding packets - which would itself be a source of
