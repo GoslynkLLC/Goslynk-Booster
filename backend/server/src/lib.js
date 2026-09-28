@@ -5,6 +5,7 @@ import { one, all, run } from "./db.js";
 
 export const ROLES = ["user", "vip", "developer", "admin"];
 export const DEV_ROLES = ["developer", "admin"];
+export const BOOST_ROLES = ["vip", "developer", "admin"];
 export const DEFAULT_DEV_MESSAGE = "Ứng dụng đang bảo trì, vui lòng quay lại sau.";
 
 export class ApiError extends Error {
@@ -79,14 +80,16 @@ export const USER_SELECT = "SELECT *, (vip_until > NOW()) AS vip_active FROM gsb
 
 export function publicUser(u) {
   const vip = Number(u.vip_active) === 1;
+  // Days from a redeem code make a plain user VIP until they run out; other roles rank higher.
+  const role = vip && u.role === "user" ? "vip" : u.role;
   return {
     id: Number(u.id),
     username: u.username,
     email: u.email,
     displayName: u.display_name || u.username,
-    // Days from a redeem code make a plain user VIP until they run out; other roles rank higher.
-    role: vip && u.role === "user" ? "vip" : u.role,
+    role,
     vipUntil: vip ? u.vip_until : null,
+    canBoost: BOOST_ROLES.includes(role),
   };
 }
 
@@ -104,12 +107,16 @@ export function appBlock(u, s) {
 
 export const failBlock = (b) => fail(b.message, b.status, b.code);
 
-/** What a signed-in client needs to connect. The PSK only ever leaves the server here. */
+/**
+ * What a signed-in client needs to connect. The PSK only ever leaves the server here, and only
+ * to accounts that may boost.
+ */
 export function appPayload(u, s) {
+  const user = publicUser(u);
   return {
-    user: publicUser(u),
+    user,
     developerMode: developerMode(s),
-    relay: { endpoint: s.relay_endpoint || "", psk: s.relay_psk || "" },
+    relay: user.canBoost ? { endpoint: s.relay_endpoint || "", psk: s.relay_psk || "" } : { endpoint: "", psk: "" },
   };
 }
 

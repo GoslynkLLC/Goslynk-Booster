@@ -24,15 +24,16 @@ import RedeemModal from "./components/RedeemModal.jsx";
 import AdminRedeemScreen from "./screens/AdminRedeemScreen.jsx";
 
 const SESSION_KEY = "gsb-session-v2";
-const RELAY_OVERRIDE_KEY = "gsb-relay-override-v1";
+// Held a hand-entered relay PSK in versions up to 0.1.4; cleared on start.
+const OLD_RELAY_OVERRIDE_KEY = "gsb-relay-override-v1";
 const REGIONS_KEY = "gpb-regions-v2";
 const POLL_MS = 60_000;
 const STATUS_POLL_MS = 1000;
 const MAX_SLOTS = 3;
 const NOTICE_MS = 4000;
-const DEV_ROLES = ["developer", "admin"];
 const EMPTY_RELAY = { endpoint: "", psk: "" };
 const IDLE_STATUS = { connected: false, games: [] };
+const NO_BOOST = "Boost game chỉ dành cho tài khoản VIP. Nhập mã quà tặng để nhận VIP.";
 
 function loadJson(key, fallback) {
   try {
@@ -62,7 +63,6 @@ export default function App() {
   const [developerMode, setDeveloperMode] = useState(false);
   const [serverRelay, setServerRelay] = useState(EMPTY_RELAY);
   const [buildRelay, setBuildRelay] = useState(EMPTY_RELAY);
-  const [relayOverride, setRelayOverride] = useState(() => loadJson(RELAY_OVERRIDE_KEY, EMPTY_RELAY));
   const [games, setGames] = useState([]);
   const [regions, setRegions] = useState(() => loadJson(REGIONS_KEY, {}));
   const [notice, setNotice] = useState("");
@@ -110,6 +110,7 @@ export default function App() {
   );
 
   useEffect(() => {
+    saveJson(OLD_RELAY_OVERRIDE_KEY, null);
     let cancelled = false;
     (async () => {
       try {
@@ -209,18 +210,13 @@ export default function App() {
       });
   }, [applyAuth, endSession]);
 
-  const onRelayOverrideChange = useCallback((next) => {
-    setRelayOverride(next);
-    saveJson(RELAY_OVERRIDE_KEY, next);
-  }, []);
-
-  const isDev = DEV_ROLES.includes(user?.role);
+  // The server decides who may boost and only hands those accounts the relay.
+  const canBoost = !!user?.canBoost;
   const relay = useMemo(() => {
-    if (isDev && hasRelay(relayOverride)) return { ...relayOverride, source: "override" };
     if (hasRelay(serverRelay)) return { ...serverRelay, source: "server" };
     if (hasRelay(buildRelay)) return { ...buildRelay, source: "build" };
     return { ...EMPTY_RELAY, source: "none" };
-  }, [isDev, relayOverride, serverRelay, buildRelay]);
+  }, [serverRelay, buildRelay]);
 
   const regionIdsFor = (game) =>
     (regions[game.id] ?? defaultRegionIds(game)).filter((id) => game.regions.some((r) => r.id === id));
@@ -234,6 +230,10 @@ export default function App() {
   async function boostGame(game, regionIds = regionIdsFor(game)) {
     const id = game.id;
     if (pendingRef.current[id]) return;
+    if (!canBoost) {
+      setGamesNotice(NO_BOOST);
+      return;
+    }
 
     let next = slotsRef.current;
     if (!next.includes(id)) {
@@ -362,10 +362,8 @@ export default function App() {
           onRetry={(g) => boostGame(g)}
           onRemove={removeSlot}
           onPickGames={() => setScreen("games")}
-          relay={relay}
-          canEditRelay={isDev}
-          relayOverride={relayOverride}
-          onRelayOverrideChange={onRelayOverrideChange}
+          canBoost={canBoost}
+          onRedeem={() => setShowRedeemModal(true)}
         />
       )}
 

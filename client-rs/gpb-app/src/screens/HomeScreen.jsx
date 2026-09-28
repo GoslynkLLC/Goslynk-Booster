@@ -1,13 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { GAME_ART, detailLabel } from "../games.js";
 
-const RELAY_SOURCE = {
-  override: "relay thủ công",
-  server: "relay máy chủ",
-  build: "relay mặc định",
-  none: "chưa có relay",
-};
-
 // With the tunnel up this long and no packet sent, no game is using the routed ranges.
 const IDLE_HINT_MS = 15000;
 
@@ -146,10 +139,8 @@ export default function HomeScreen({
   onRetry,
   onRemove,
   onPickGames,
-  relay,
-  canEditRelay,
-  relayOverride,
-  onRelayOverrideChange,
+  canBoost,
+  onRedeem,
 }) {
   const rates = useRates(status);
   const connected = !!status.connected;
@@ -172,6 +163,15 @@ export default function HomeScreen({
       {developerMode ? (
         <p className="notice warn">Chế độ developer đang bật: chỉ admin và developer vào được app.</p>
       ) : null}
+
+      {canBoost ? null : (
+        <div className="notice warn vip-gate">
+          <span>Boost game chỉ dành cho tài khoản VIP. Nhập mã quà tặng để nhận VIP.</span>
+          <button type="button" className="btn primary sm" onClick={onRedeem}>
+            Nhập code
+          </button>
+        </div>
+      )}
 
       <div className="slots">
         {filled.map((g) => (
@@ -252,34 +252,6 @@ export default function HomeScreen({
         </p>
       </section>
 
-      {canEditRelay ? (
-        <details className="config">
-          <summary>
-            Relay thủ công (developer)
-            <span className="muted"> · đang dùng {RELAY_SOURCE[relay.source]}</span>
-          </summary>
-          <p className="hint">Để trống để dùng relay do admin cấu hình trên máy chủ. Áp dụng từ lần kết nối sau.</p>
-          <label>
-            Endpoint
-            <input
-              value={relayOverride.endpoint}
-              onChange={(e) => onRelayOverrideChange({ ...relayOverride, endpoint: e.target.value })}
-              placeholder={relay.endpoint || "203.0.113.10:51820"}
-              autoComplete="off"
-            />
-          </label>
-          <label>
-            PSK
-            <input
-              type="password"
-              value={relayOverride.psk}
-              onChange={(e) => onRelayOverrideChange({ ...relayOverride, psk: e.target.value })}
-              placeholder="≥ 16 ký tự"
-              autoComplete="off"
-            />
-          </label>
-        </details>
-      ) : null}
     </section>
   );
 }

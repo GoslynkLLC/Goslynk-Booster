@@ -273,6 +273,10 @@ test("redeem pays once per account and once per machine, and extends VIP", async
     });
     tokens[name] = r.data.token;
   }
+  const plain = await call("/api/auth/me", { token: tokens.dave });
+  assert.equal(plain.data.user.canBoost, false);
+  assert.deepEqual(plain.data.relay, { endpoint: "", psk: "" }, "plain users never receive the PSK");
+
   assert.equal((await redeem("dave", "GIFT7", "DUMMY_LOCAL_HWID")).data.code, "invalid_hwid");
   assert.equal((await call("/api/redeem", { method: "POST", body: { code: "GIFT7", hwidHash: hw(1) } })).status, 401);
 
@@ -281,6 +285,8 @@ test("redeem pays once per account and once per machine, and extends VIP", async
   const me = await call("/api/auth/me", { token: tokens.dave });
   assert.equal(me.data.user.role, "vip");
   assert.equal(me.data.user.vipUntil, ok.data.vipUntil);
+  assert.equal(me.data.user.canBoost, true);
+  assert.equal(me.data.relay.endpoint, "74.81.54.113:51820");
 
   const again = await redeem("dave", "GIFT7", hw(2));
   assert.equal(again.status, 409);
@@ -306,6 +312,7 @@ test("redeem pays once per account and once per machine, and extends VIP", async
   const lapsed = await call("/api/auth/me", { token: tokens.dave });
   assert.equal(lapsed.data.user.role, "user");
   assert.equal(lapsed.data.user.vipUntil, null);
+  assert.equal(lapsed.data.relay.psk, "");
 });
 
 test("disabled and expired codes; PUT keeps what it is not given", async () => {
