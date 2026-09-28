@@ -1,5 +1,7 @@
 import { config } from "./config.js";
-import { createApp, cleanupExpired, pool } from "./app.js";
+import { createApp, cleanupExpired, ensureMigrations, pool } from "./app.js";
+
+ensureMigrations().catch((e) => console.error("migration:", e.message));
 
 const app = createApp();
 const server = app.listen(config.port, config.host, () => {
