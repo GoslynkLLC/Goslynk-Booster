@@ -38,3 +38,9 @@ backend/server/.env
 .DS_Store
 .vs/
 .reset-backup/
+
+# VS Code local settings
+.vscode/
+
+# Frontend local env
+client-rs/gpb-app/.env.local

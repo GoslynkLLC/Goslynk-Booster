@@ -2,7 +2,7 @@ import { useState } from "react";
 import { apiLogin, errMsg } from "../api.js";
 import logo from "../assets/goslynk-mark.png";
 
-export default function LoginScreen({ notice, onSuccess, onGoRegister }) {
+export default function LoginScreen({ notice, onSuccess, onGoRegister, onGoForgotPassword }) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -44,9 +44,22 @@ export default function LoginScreen({ notice, onSuccess, onGoRegister }) {
             autoComplete="current-password"
           />
         </label>
+
         <button type="submit" className="btn primary" disabled={busy}>
           {busy ? "Đang đăng nhập…" : "Đăng nhập"}
         </button>
+
+        <p className="hint">
+          <button
+            type="button"
+            className="link"
+            onClick={onGoForgotPassword}
+            disabled={busy}
+          >
+            Quên mật khẩu?
+          </button>
+        </p>
+        
       </form>
       <p className="hint">
         Chưa có tài khoản?{" "}
