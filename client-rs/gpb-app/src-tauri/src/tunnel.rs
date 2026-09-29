@@ -1,12 +1,13 @@
 //! Handshake + TUN + routes + pumps. Runs in the app process when it already has the
 //! privileges, otherwise inside the root helper (see `helper.rs`).
 
+use crate::roads::{self, PathInfo, RelayRoute};
 use gpb_net::{default_gateway, open_tun, PlatformRouteTable, RouteTable, TunDevice};
 use gpb_protocol::{ipv4_to_string, ClientId};
-use gpb_tunnel::{clock, handshake, start_pumps, TunnelError, TunnelSession};
+use gpb_tunnel::{clock, start_pumps_multipath, TunnelError, TunnelSession};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -16,7 +17,8 @@ const ADAPTER_NAME: &str = "Goslynk Booster";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TunnelRequest {
-    pub endpoint: String,
+    /// The exits this game may use; the fastest to answer is kept.
+    pub relays: Vec<RelayRoute>,
     pub psk: String,
     pub client_id: ClientId,
     pub cidrs: Vec<String>,
@@ -33,6 +35,11 @@ pub struct ConnectResult {
     pub handshake_rtt_ms: f64,
     pub tun_name: String,
     pub routes: usize,
+    #[serde(default)]
+    pub relay_id: String,
+    /// Every road measured at connect time, the ones in use included.
+    #[serde(default)]
+    pub paths: Vec<PathInfo>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -59,6 +66,19 @@ pub struct StatusSnapshot {
     /// Downlink packets that arrived only thanks to their second copy.
     #[serde(default)]
     pub rescued_packets: u64,
+    #[serde(default)]
+    pub relay_id: Option<String>,
+    /// The road the session runs on: `direct` or an entry's endpoint.
+    #[serde(default)]
+    pub main_via: Option<String>,
+    /// The second road, when there is one close enough to the first.
+    #[serde(default)]
+    pub alt_via: Option<String>,
+    #[serde(default)]
+    pub alt_rtt_ms: Option<f64>,
+    /// The relay agreed to Multipath: each copy now takes a different road.
+    #[serde(default)]
+    pub multipath: bool,
     /// Games whose routes go through the tunnel; filled in by the app, not the helper.
     #[serde(default)]
     pub games: Vec<String>,
@@ -70,6 +90,9 @@ pub struct LiveTunnel {
     cidrs: BTreeSet<String>,
     relay_ip: Ipv4Addr,
     tun_name: String,
+    relay_id: String,
+    main_via: String,
+    alt_via: Option<String>,
     _tuning: crate::netopt::BoostTuning,
 }
 
@@ -118,6 +141,11 @@ impl LiveTunnel {
             mtu: Some(self.session.handshake.mtu),
             redundant: s.redundant.load(Ordering::Relaxed),
             rescued_packets: s.rescued_packets(),
+            relay_id: Some(self.relay_id.clone()),
+            main_via: Some(self.main_via.clone()),
+            alt_via: self.alt_via.clone(),
+            alt_rtt_ms: s.alt_rtt_ms(),
+            multipath: s.multipath.load(Ordering::Relaxed),
             games: Vec::new(),
         }
     }
@@ -129,22 +157,18 @@ impl LiveTunnel {
 }
 
 pub fn establish(req: &TunnelRequest) -> Result<(LiveTunnel, ConnectResult), String> {
-    let endpoint: SocketAddr = req
-        .endpoint
-        .parse()
-        .map_err(|e| format!("Endpoint không hợp lệ '{}': {e}", req.endpoint))?;
-    let relay_host = match endpoint.ip() {
-        std::net::IpAddr::V4(v4) => v4,
-        std::net::IpAddr::V6(_) => return Err("Chưa hỗ trợ relay IPv6".into()),
-    };
-
-    let (socket, hs, stamp) = handshake(
-        endpoint,
+    if req.relays.is_empty() {
+        return Err("Chưa có relay nào cho game này. Liên hệ admin Goslynk.".into());
+    }
+    let conn = roads::connect(
+        &req.relays,
         req.psk.as_bytes(),
         req.client_id,
         Duration::from_secs(req.timeout_secs),
     )
     .map_err(explain_handshake_error)?;
+    let hs = conn.hs;
+    let relay_host = conn.relay_host;
 
     let client_ip = Ipv4Addr::from(hs.client_ip);
     let relay_ip = Ipv4Addr::from(hs.relay_ip);
@@ -179,15 +203,22 @@ pub fn establish(req: &TunnelRequest) -> Result<(LiveTunnel, ConnectResult), Str
         inner_ip: ipv4_to_string(&hs.client_ip),
         gateway_ip: ipv4_to_string(&hs.relay_ip),
         mtu: hs.mtu,
-        handshake_rtt_ms: stamp.handshake_rtt_us as f64 / 1000.0,
+        handshake_rtt_ms: conn.handshake_rtt_us as f64 / 1000.0,
         tun_name: tun_name.clone(),
         routes: cidrs.len(),
+        relay_id: conn.relay_id.clone(),
+        paths: conn.paths,
     };
 
-    let session = start_pumps(
-        socket,
+    let (alt_sock, alt_via) = match conn.alt {
+        Some((sock, via)) => (Some(sock), Some(via)),
+        None => (None, None),
+    };
+    let session = start_pumps_multipath(
+        conn.main,
+        alt_sock,
         hs,
-        stamp.handshake_rtt_us,
+        conn.handshake_rtt_us,
         tun,
         Duration::from_secs(req.keepalive_secs),
     )
@@ -200,6 +231,9 @@ pub fn establish(req: &TunnelRequest) -> Result<(LiveTunnel, ConnectResult), Str
             cidrs,
             relay_ip,
             tun_name: result.tun_name.clone(),
+            relay_id: conn.relay_id,
+            main_via: conn.main_via,
+            alt_via,
             _tuning: crate::netopt::BoostTuning::start(),
         },
         result,

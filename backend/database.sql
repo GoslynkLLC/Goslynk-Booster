@@ -62,6 +62,28 @@ CREATE TABLE IF NOT EXISTS `gsb_login_attempts` (
   KEY `idx_gsb_attempt_ip_time` (`ip`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Relay: exit chạy relayd + NAT gần server game; entry chỉ chuyển tiếp UDP tới một exit (multipath).
+-- games để trống = exit dùng cho mọi game; "lol,tft" = chỉ các game đó.
+CREATE TABLE IF NOT EXISTS `gsb_relays` (
+  `id` VARCHAR(32) PRIMARY KEY,
+  `name` VARCHAR(64) NOT NULL,
+  `location` VARCHAR(64) NOT NULL DEFAULT '',
+  `endpoint` VARCHAR(100) NOT NULL,
+  `role` ENUM('exit', 'entry') NOT NULL DEFAULT 'exit',
+  `exit_id` VARCHAR(32) NULL DEFAULT NULL,
+  `games` VARCHAR(255) NOT NULL DEFAULT '',
+  `enabled` TINYINT(1) NOT NULL DEFAULT 1,
+  `sort` INT NOT NULL DEFAULT 0,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Lần đầu: relay_endpoint cũ trở thành exit sg-1 dùng cho mọi game.
+INSERT INTO `gsb_relays` (`id`, `name`, `location`, `endpoint`, `role`)
+SELECT 'sg-1', 'Goslynk SG-1', 'Singapore', `setting_value`, 'exit'
+  FROM `gsb_settings`
+ WHERE `setting_key` = 'relay_endpoint' AND `setting_value` <> ''
+   AND NOT EXISTS (SELECT 1 FROM `gsb_relays`);
+
 CREATE TABLE IF NOT EXISTS `gsb_audit_log` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `actor_id` INT UNSIGNED NULL,

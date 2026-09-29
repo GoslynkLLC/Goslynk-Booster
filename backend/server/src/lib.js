@@ -115,14 +115,20 @@ export const failBlock = (b) => fail(b.message, b.status, b.code);
 
 /**
  * What a signed-in client needs to connect. The PSK only ever leaves the server here, and only
- * to accounts that may boost.
+ * to accounts that may boost. `relays` is the list from clientRelays(); `relay` is the single
+ * endpoint that app versions before multi-relay read, so it is the first exit serving every game.
  */
-export function appPayload(u, s) {
+export function appPayload(u, s, relays = []) {
   const user = publicUser(u);
+  if (!user.canBoost) {
+    return { user, developerMode: developerMode(s), relay: { endpoint: "", psk: "" }, relays: [] };
+  }
+  const shared = relays.find((r) => r.games.length === 0);
   return {
     user,
     developerMode: developerMode(s),
-    relay: user.canBoost ? { endpoint: s.relay_endpoint || "", psk: s.relay_psk || "" } : { endpoint: "", psk: "" },
+    relay: { endpoint: shared?.endpoint || s.relay_endpoint || "", psk: s.relay_psk || "" },
+    relays,
   };
 }
 

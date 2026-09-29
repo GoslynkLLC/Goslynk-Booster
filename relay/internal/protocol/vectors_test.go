@@ -126,6 +126,11 @@ type vectorFile struct {
 		PacketHex    string `json:"packetHex"`
 	} `json:"disconnect"`
 
+	Multipath struct {
+		SessionIDHex string `json:"sessionIdHex"`
+		PacketHex    string `json:"packetHex"`
+	} `json:"multipath"`
+
 	// P-256 agreement between the two standard libraries, for the v3 handshake. Each side
 	// verifies a signature the OTHER one made: that is the only thing that proves they agree,
 	// because either side verifying its own output proves nothing.
@@ -243,6 +248,9 @@ func generateVectors(t *testing.T) {
 
 	v.Disconnect.SessionIDHex = vectorSessHex
 	v.Disconnect.PacketHex = hex.EncodeToString(BuildDisconnect(sid))
+
+	v.Multipath.SessionIDHex = vectorSessHex
+	v.Multipath.PacketHex = hex.EncodeToString(BuildMultipath(sid))
 
 	// ------------------------------------------------------------ P-256
 	//
@@ -465,6 +473,9 @@ func TestProtocolVectors(t *testing.T) {
 	// -------------------------------------------------------------- Disconnect
 	if got := BuildDisconnect(sid); !bytes.Equal(got, mustHex(t, v.Disconnect.PacketHex)) {
 		t.Errorf("Disconnect changed:\n got %x\nwant %s", got, v.Disconnect.PacketHex)
+	}
+	if got := BuildMultipath(sid); !bytes.Equal(got, mustHex(t, v.Multipath.PacketHex)) {
+		t.Errorf("Multipath changed:\n got %x\nwant %s", got, v.Multipath.PacketHex)
 	}
 
 	// ------------------------------------------------------------------ P-256

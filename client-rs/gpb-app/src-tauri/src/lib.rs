@@ -9,6 +9,7 @@ mod helper;
 mod hwid;
 mod netopt;
 mod profiles;
+mod roads;
 mod tunnel;
 
 use gpb_profile::load_or_create_client_id;
@@ -66,6 +67,8 @@ struct Boosted {
     live: Live,
     /// Game id -> the ranges it routes; the tunnel carries their union.
     games: GameRoutes,
+    /// The exit the tunnel runs through. A game meant for another exit cannot share it.
+    relay_id: String,
 }
 
 fn union(games: &GameRoutes) -> Vec<String> {
@@ -84,7 +87,8 @@ pub struct AppState {
 #[serde(rename_all = "camelCase")]
 pub struct BoostArgs {
     pub psk: String,
-    pub endpoint: String,
+    /// Every relay the account may use; narrowed to this game's exits here.
+    pub relays: Vec<roads::RelayChoice>,
     pub game_id: String,
     /// Regions of the game to route; `None` means every region.
     pub region_ids: Option<Vec<String>>,
@@ -189,16 +193,27 @@ async fn boost_game(
         );
     }
 
+    let exits = roads::for_game(&args.relays, &args.game_id);
+    if exits.is_empty() {
+        return Err("Máy chủ chưa cấu hình relay cho game này. Liên hệ admin Goslynk.".into());
+    }
+
     let current = state
         .boosted
         .lock()
         .map_err(|e| e.to_string())?
         .as_ref()
-        .map(|b| b.games.clone());
-    if let Some(mut games) = current {
+        .map(|b| (b.games.clone(), b.relay_id.clone()));
+    if let Some((mut games, relay_id)) = current {
         if !games.contains_key(&args.game_id) && games.len() >= MAX_BOOSTED {
             return Err(format!(
                 "Tối đa {MAX_BOOSTED} game cùng lúc. Dừng một game ở Home trước."
+            ));
+        }
+        if !exits.iter().any(|r| r.id == relay_id) {
+            return Err(format!(
+                "Game này dùng relay khác với relay đang chạy ({relay_id}). \
+                 Dừng các game đang boost ở Home trước."
             ));
         }
         games.insert(args.game_id, cidrs);
@@ -216,7 +231,7 @@ async fn boost_game(
         .map_err(|e| format!("Client id: {e}"))?;
 
     let req = TunnelRequest {
-        endpoint: args.endpoint,
+        relays: exits,
         psk: args.psk,
         client_id,
         cidrs: cidrs.clone(),
@@ -226,13 +241,17 @@ async fn boost_game(
     };
 
     // Async so the window stays responsive during the handshake and the macOS password dialog.
-    let (live, _) = tauri::async_runtime::spawn_blocking(move || bring_up(&req))
+    let (live, result) = tauri::async_runtime::spawn_blocking(move || bring_up(&req))
         .await
         .map_err(|e| e.to_string())??;
 
     let games = GameRoutes::from([(args.game_id, cidrs)]);
     let ids = games.keys().cloned().collect();
-    *state.boosted.lock().map_err(|e| e.to_string())? = Some(Boosted { live, games });
+    *state.boosted.lock().map_err(|e| e.to_string())? = Some(Boosted {
+        live,
+        games,
+        relay_id: result.relay_id,
+    });
     Ok(ids)
 }
 

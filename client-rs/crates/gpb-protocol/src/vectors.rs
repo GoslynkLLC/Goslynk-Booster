@@ -23,6 +23,7 @@ struct VectorFile {
     #[serde(rename = "probeReply")]
     probe_reply: PingVec,
     disconnect: DisconnectVec,
+    multipath: DisconnectVec,
 }
 
 #[derive(Deserialize)]
@@ -211,4 +212,8 @@ fn protocol_vectors() {
 
     let d_sid = sid_from(&v.disconnect.session_id_hex);
     assert_eq!(build_disconnect(&d_sid), hex(&v.disconnect.packet_hex));
+    assert_eq!(
+        build_multipath(&sid_from(&v.multipath.session_id_hex)),
+        hex(&v.multipath.packet_hex)
+    );
 }

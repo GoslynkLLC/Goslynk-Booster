@@ -50,6 +50,10 @@
     "sessionIdHex": "1122334455667788",
     "packetHex": "361122334455667788"
   },
+  "multipath": {
+    "sessionIdHex": "1122334455667788",
+    "packetHex": "3c1122334455667788"
+  },
   "cryptoP256": {
     "note": "Each side verifies the signature the other made. Regenerate .NET's with: dotnet run --project client/src/GamePingBooster.ProtocolCheck -- --emit-p256-signature",
     "privateKeyHex": "58ee53ec7ce1815650f98f5aa2275a2d8aa7839c5ceb40f2253d39b0037510a3",

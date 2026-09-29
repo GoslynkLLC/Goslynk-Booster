@@ -21,6 +21,15 @@ function bytes(n) {
   return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
 }
 
+const viaLabel = (via) => (via === "direct" ? "trực tiếp" : `qua ${via}`);
+
+function roadsText(s) {
+  const main = `Relay ${s.relayId} · đường chính ${viaLabel(s.mainVia)}`;
+  if (!s.altVia) return `${main} · một đường`;
+  const alt = `đường phụ ${viaLabel(s.altVia)}${s.altRttMs != null ? ` (${ms(s.altRttMs)})` : ""}`;
+  return `${main} · ${alt} · ${s.multipath ? "gửi song song 2 đường" : "đang bật đường phụ…"}`;
+}
+
 function pingClass(v) {
   if (v == null) return "";
   if (v < 60) return " good";
@@ -243,6 +252,7 @@ export default function HomeScreen({
             </span>
           </div>
         </div>
+        {connected && status.relayId ? <p className="hint roads">{roadsText(status)}</p> : null}
         <p className="hint">
           {!connected
             ? "Bấm một game ở mục Games để bắt đầu boost."

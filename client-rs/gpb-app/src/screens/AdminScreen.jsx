@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { adminApi, errMsg, isSessionRejected } from "../api.js";
 import RedeemCodesTab from "./RedeemCodesTab.jsx";
+import RelaysTab from "./RelaysTab.jsx";
 
 const ROLES = ["user", "vip", "vip_plus", "developer", "admin"];
 const TABS = [
   ["general", "Chung"],
+  ["relays", "Relay"],
   ["users", "Tài khoản"],
   ["redeem", "Mã quà"],
   ["audit", "Lịch sử"],
@@ -25,6 +27,9 @@ const ACTION_LABEL = {
   update_redeem_code: "Sửa mã quà",
   enable_redeem_code: "Mở mã quà",
   disable_redeem_code: "Khóa mã quà",
+  relay_add: "Thêm relay",
+  relay_edit: "Sửa relay",
+  relay_delete: "Xoá relay",
 };
 
 export default function AdminScreen({ me, onChanged, onSessionRejected, onBack }) {
@@ -67,6 +72,7 @@ export default function AdminScreen({ me, onChanged, onSessionRejected, onBack }
       </nav>
 
       {tab === "general" && <GeneralTab guard={guard} onChanged={onChanged} />}
+      {tab === "relays" && <RelaysTab guard={guard} />}
       {tab === "users" && <UsersTab me={me} guard={guard} />}
       {tab === "redeem" && <RedeemCodesTab guard={guard} />}
       {tab === "audit" && <AuditTab guard={guard} />}
@@ -78,7 +84,6 @@ function GeneralTab({ guard, onChanged }) {
   const [s, setS] = useState(null);
   const [message, setMessage] = useState("");
   const [registrationOpen, setRegistrationOpen] = useState(true);
-  const [endpoint, setEndpoint] = useState("");
   const [psk, setPsk] = useState("");
   const [showPsk, setShowPsk] = useState(false);
   const [confirmDev, setConfirmDev] = useState(false);
@@ -90,7 +95,6 @@ function GeneralTab({ guard, onChanged }) {
     setS(next);
     setMessage(next.developerMessage);
     setRegistrationOpen(next.registrationOpen);
-    setEndpoint(next.relayEndpoint);
     setPsk(next.relayPsk);
   };
 
@@ -185,12 +189,8 @@ function GeneralTab({ guard, onChanged }) {
       </section>
 
       <section className="panel">
-        <p className="panel-title">Relay</p>
-        <p className="hint">App của mọi người nhận endpoint và PSK này sau khi đăng nhập.</p>
-        <label>
-          Endpoint
-          <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="74.81.54.113:51820" autoComplete="off" />
-        </label>
+        <p className="panel-title">PSK relay</p>
+        <p className="hint">Dùng chung cho mọi relay exit. Danh sách relay nằm ở tab Relay.</p>
         <label>
           PSK
           <span className="input-row">
@@ -209,9 +209,9 @@ function GeneralTab({ guard, onChanged }) {
           type="button"
           className="btn primary sm"
           disabled={busy}
-          onClick={() => save({ relayEndpoint: endpoint.trim(), relayPsk: psk.trim() }, "Đã lưu relay.")}
+          onClick={() => save({ relayPsk: psk.trim() }, "Đã lưu PSK.")}
         >
-          Lưu relay
+          Lưu PSK
         </button>
       </section>
 

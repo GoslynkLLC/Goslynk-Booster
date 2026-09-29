@@ -50,6 +50,8 @@ function saveJson(key, value) {
 }
 
 const hasRelay = (r) => !!(r?.endpoint?.trim() && r?.psk);
+/** A lone endpoint (older server, or the build's own relay) as a relay serving every game. */
+const single = (id, r) => ({ id, endpoint: r.endpoint.trim(), games: [], entries: [] });
 
 function without(obj, key) {
   if (!(key in obj)) return obj;
@@ -63,6 +65,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [developerMode, setDeveloperMode] = useState(false);
   const [serverRelay, setServerRelay] = useState(EMPTY_RELAY);
+  const [serverRelays, setServerRelays] = useState([]);
   const [buildRelay, setBuildRelay] = useState(EMPTY_RELAY);
   const [games, setGames] = useState([]);
   const [regions, setRegions] = useState(() => loadJson(REGIONS_KEY, {}));
@@ -92,6 +95,7 @@ export default function App() {
     setUser(data.user);
     setDeveloperMode(!!data.developerMode);
     setServerRelay(data.relay || EMPTY_RELAY);
+    setServerRelays(Array.isArray(data.relays) ? data.relays : []);
   }, []);
 
   const endSession = useCallback(
@@ -101,6 +105,7 @@ export default function App() {
       saveJson(SESSION_KEY, null);
       setUser(null);
       setServerRelay(EMPTY_RELAY);
+      setServerRelays([]);
       setStatus(IDLE_STATUS);
       setSlots([]);
       setBoostErrors({});
@@ -218,13 +223,17 @@ export default function App() {
       });
   }, [applyAuth, endSession]);
 
-  // The server decides who may boost and only hands those accounts the relay.
+  // The server decides who may boost and only hands those accounts the relays. The Rust side
+  // narrows the list to the exits meant for each game and keeps the fastest.
   const canBoost = !!user?.canBoost;
   const relay = useMemo(() => {
-    if (hasRelay(serverRelay)) return { ...serverRelay, source: "server" };
-    if (hasRelay(buildRelay)) return { ...buildRelay, source: "build" };
-    return { ...EMPTY_RELAY, source: "none" };
-  }, [serverRelay, buildRelay]);
+    if (serverRelay.psk && serverRelays.length) {
+      return { psk: serverRelay.psk, relays: serverRelays, source: "server" };
+    }
+    if (hasRelay(serverRelay)) return { psk: serverRelay.psk, relays: [single("server", serverRelay)], source: "server" };
+    if (hasRelay(buildRelay)) return { psk: buildRelay.psk, relays: [single("build", buildRelay)], source: "build" };
+    return { psk: "", relays: [], source: "none" };
+  }, [serverRelay, serverRelays, buildRelay]);
 
   const regionIdsFor = (game) =>
     (regions[game.id] ?? defaultRegionIds(game)).filter((id) => game.regions.some((r) => r.id === id));
@@ -267,7 +276,7 @@ export default function App() {
     try {
       const ids = await apiBoost({
         psk: relay.psk,
-        endpoint: relay.endpoint.trim(),
+        relays: relay.relays,
         gameId: id,
         regionIds,
       });
