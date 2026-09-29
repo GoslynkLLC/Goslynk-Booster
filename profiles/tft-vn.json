@@ -13,10 +13,10 @@
       "lobbyAddresses": [],
       "regions": [
         {
-          "id": "sg",
-          "name": "Singapore",
+          "id": "vn",
+          "name": "Việt Nam",
           "source": "upstream",
-          "note": "Chưa bắt gói tin xác nhận.",
+          "note": "Chung cụm server Việt Nam với Liên Minh. Chưa bắt gói tin xác nhận.",
           "cidrs": [
             "151.106.248.16/28"
           ]
@@ -25,6 +25,12 @@
     }
   ],
   "relays": [
+    {
+      "id": "vn-1",
+      "name": "Goslynk VN-1",
+      "location": "Việt Nam",
+      "endpoint": "180.93.117.132:51820"
+    },
     {
       "id": "sg-1",
       "name": "Goslynk SG-1",

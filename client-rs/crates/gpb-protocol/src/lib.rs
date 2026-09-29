@@ -25,6 +25,9 @@ pub const TYPE_PROBE_REPLY: u8 = 0x9;
 pub const TYPE_HELLO: u8 = 0xA;
 /// Data plus a sequence number, every packet sent twice; the receiver drops the second copy.
 pub const TYPE_DATA_DUP: u8 = 0xB;
+/// Asks a DataDup session for a second return address (an entry in front of the relay); a relay
+/// that supports it echoes it, an older one drops it and the client stays single-path.
+pub const TYPE_MULTIPATH: u8 = 0xC;
 
 pub const AUTH_MODE_PSK: u8 = 0;
 pub const AUTH_MODE_TOKEN: u8 = 1;
@@ -38,6 +41,7 @@ pub const PING_LEN: usize = 17;
 pub const PROBE_LEN: usize = 17;
 pub const DISCONNECT_LEN: usize = 9;
 pub const HELLO_LEN: usize = 9;
+pub const MULTIPATH_LEN: usize = 9;
 pub const MAX_PACKET_LEN: usize = 2048;
 pub const NONCE_LEN: usize = 8;
 
@@ -291,6 +295,13 @@ pub fn try_read_data_dup(pkt: &[u8]) -> Result<(SessionId, u32, &[u8]), Protocol
 pub fn build_hello(session_id: &SessionId) -> Vec<u8> {
     let mut pkt = vec![0u8; HELLO_LEN];
     pkt[0] = header(TYPE_HELLO);
+    pkt[1..9].copy_from_slice(session_id);
+    pkt
+}
+
+pub fn build_multipath(session_id: &SessionId) -> Vec<u8> {
+    let mut pkt = vec![0u8; MULTIPATH_LEN];
+    pkt[0] = header(TYPE_MULTIPATH);
     pkt[1..9].copy_from_slice(session_id);
     pkt
 }

@@ -152,3 +152,10 @@ export const adminRedeemApi = {
   update: (id, data) => http(`admin/redeems/${id}`, { method: "PUT", body: data }),
   toggle: (id) => http(`admin/redeems/${id}`, { method: "DELETE" }),
 };
+
+export const adminRelayApi = {
+  list: () => http("admin/relays"),
+  create: (data) => http("admin/relays", { method: "POST", body: data }),
+  update: (id, data) => http(`admin/relays/${encodeURIComponent(id)}`, { method: "PUT", body: data }),
+  remove: (id) => http(`admin/relays/${encodeURIComponent(id)}`, { method: "DELETE" }),
+};

@@ -48,6 +48,13 @@ const (
 	// keeps the first copy and drops the second (DupFilter), so one lost copy costs nothing. It
 	// spends bandwidth - a game uses ~10 KB/s - to take out the loss bursts of a congested route.
 	TypeDataDup = 0xB
+
+	// TypeMultipath asks the relay to keep a second return address for a session already on
+	// DataDup, and the relay echoes it to say yes. From then on a packet from a new address adds
+	// that address beside the current one instead of replacing it, and each downlink copy goes
+	// down a different road - the client's second road being an entry in front of this relay. An
+	// older relay drops the unknown type and the client stays on single-path DataDup.
+	TypeMultipath = 0xC
 )
 
 // Authentication modes. A relay is configured for exactly one and answers only that one.
@@ -85,6 +92,7 @@ const (
 	ProbeLen         = 17
 	DisconnectLen    = 9
 	HelloLen         = 9
+	MultipathLen     = 9
 
 	// MaxPacketLen: max virtual adapter MTU of 1500 plus our header, rounded up.
 	MaxPacketLen = 2048
@@ -530,6 +538,13 @@ func DecodeDataDup(pkt []byte) (SessionID, uint32, []byte, error) {
 func BuildHello(sid SessionID) []byte {
 	pkt := make([]byte, HelloLen)
 	pkt[0] = header(TypeHello)
+	copy(pkt[1:9], sid[:])
+	return pkt
+}
+
+func BuildMultipath(sid SessionID) []byte {
+	pkt := make([]byte, MultipathLen)
+	pkt[0] = header(TypeMultipath)
 	copy(pkt[1:9], sid[:])
 	return pkt
 }

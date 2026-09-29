@@ -29,10 +29,10 @@ import {
   USER_SELECT,
   endExtraSessions,
 } from "./lib.js";
+import { ENDPOINT_RE, clientRelays, relayRoutes } from "./relays.js";
 
 const USERNAME_RE = /^[A-Za-z0-9_.]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const ENDPOINT_RE = /^[A-Za-z0-9.-]+:\d{1,5}$/;
 const CODE_RE = /^[A-Z0-9_.]{3,64}$/;
 const HWID_RE = /^[0-9a-f]{64}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -164,7 +164,7 @@ export function createApp() {
     const { sessionId: _, ...session } = await issueToken(user.id, device, ip);
     const ended = await endExtraSessions(user);
     if (ended) await audit(user.id, "signed_out_elsewhere", user.username, `${ended} thiết bị cũ`, ip);
-    res.json({ ok: true, ...session, ...appPayload(user, s) });
+    res.json({ ok: true, ...session, ...appPayload(user, s, await clientRelays()) });
   });
 
   api.post("/auth/register", async (req, res) => {
@@ -226,7 +226,7 @@ export function createApp() {
     }
     await run("UPDATE gsb_users SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?", [ip, id]);
     const { sessionId: _, ...session } = await issueToken(id, device, ip);
-    res.status(201).json({ ok: true, created: true, ...session, ...appPayload(user, s) });
+    res.status(201).json({ ok: true, created: true, ...session, ...appPayload(user, s, await clientRelays()) });
   });
 
   // Asked by the app on start and every minute while open, so turning developer mode on (or
@@ -238,7 +238,7 @@ export function createApp() {
     if (block) failBlock(block);
     // Catches accounts whose device limit dropped (VIP+ ran out, role lowered) since they signed in.
     await endExtraSessions(user);
-    res.json({ ok: true, ...appPayload(user, s) });
+    res.json({ ok: true, ...appPayload(user, s, await clientRelays()) });
   });
 
   api.post("/auth/logout", async (req, res) => {
@@ -291,7 +291,7 @@ export function createApp() {
       await audit(user.id, "profile", user.username, changes.join(", "), req.ip);
     }
     const fresh = await one(`${USER_SELECT} WHERE id = ?`, [user.id]);
-    res.json({ ok: true, ...appPayload(fresh, s) });
+    res.json({ ok: true, ...appPayload(fresh, s, await clientRelays()) });
   });
 
   api.post("/auth/password", async (req, res) => {
@@ -433,6 +433,8 @@ export function createApp() {
     req.admin = u;
     next();
   });
+
+  relayRoutes(admin);
 
   admin.get("/settings", async (req, res) => {
     res.json({ ok: true, settings: settingsView(await settings()) });

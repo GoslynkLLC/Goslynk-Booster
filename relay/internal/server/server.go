@@ -113,6 +113,7 @@ type session struct {
 	resKey   protocol.ClientID
 	innerIP  netip.Addr
 	addr     atomic.Pointer[netip.AddrPort] // current client UDP address (changes on roaming)
+	addrSeen atomic.Int64                   // unix nanoseconds of the last packet from addr
 	lastSeen atomic.Int64                   // unix nanoseconds
 	born     int64                          // unix nanoseconds, set once and never updated
 	resumed  bool                           // true if this session reclaimed a previously held address
@@ -126,6 +127,14 @@ type session struct {
 	dup     atomic.Bool
 	upSeen  protocol.DupFilter
 	downSeq atomic.Uint32
+
+	// multi is set once the client asks for Multipath (only after Hello). alt is then a second
+	// return address - the client's other road in, usually an entry in front of this relay - and
+	// a packet from a new address fills or replaces a slot instead of dragging addr after it.
+	// Written only by loopUDP, read by loopTUN.
+	multi   atomic.Bool
+	alt     atomic.Pointer[netip.AddrPort]
+	altSeen atomic.Int64
 
 	// probeSecond and probeCount cap how many Probes this session is answered in one second. Touched
 	// only by loopUDP. See handleProbe.
@@ -163,6 +172,82 @@ type sessionIdent struct {
 }
 
 func (s *session) touch() { s.lastSeen.Store(time.Now().UnixNano()) }
+
+// pathStale is how long a road may stay silent before the downlink stops using it. The client
+// pings every road once a second, so this is three missed pings.
+const pathStale = 3 * time.Second
+
+func pathFresh(seen, now int64) bool { return seen != 0 && now-seen < int64(pathStale) }
+
+// knownPath reports whether from is one of the session's return addresses.
+func (s *session) knownPath(from netip.AddrPort) bool {
+	if cur := s.addr.Load(); cur != nil && *cur == from {
+		return true
+	}
+	if !s.multi.Load() {
+		return false
+	}
+	alt := s.alt.Load()
+	return alt != nil && *alt == from
+}
+
+// refreshPath marks a known road as alive without ever adding one. In multipath mode the copy that
+// loses the race is dropped as a duplicate, and it still proves its road works.
+func (s *session) refreshPath(from netip.AddrPort, now int64) {
+	if cur := s.addr.Load(); cur != nil && *cur == from {
+		s.addrSeen.Store(now)
+		return
+	}
+	if alt := s.alt.Load(); alt != nil && *alt == from && s.multi.Load() {
+		s.altSeen.Store(now)
+	}
+}
+
+// notePath records that an authenticated packet came from `from` and reports whether a return
+// address changed. Single-path it is plain roaming. Multipath, a new address takes the empty slot
+// or the one that has been silent longer, so the road still carrying traffic is never displaced.
+func (s *session) notePath(from netip.AddrPort, now int64) bool {
+	if cur := s.addr.Load(); cur != nil && *cur == from {
+		s.addrSeen.Store(now)
+		return false
+	}
+	f := from
+	if !s.multi.Load() {
+		s.addr.Store(&f)
+		s.addrSeen.Store(now)
+		return true
+	}
+	if alt := s.alt.Load(); alt != nil && *alt == from {
+		s.altSeen.Store(now)
+		return false
+	}
+	if s.alt.Load() == nil || s.altSeen.Load() <= s.addrSeen.Load() {
+		s.alt.Store(&f)
+		s.altSeen.Store(now)
+	} else {
+		s.addr.Store(&f)
+		s.addrSeen.Store(now)
+	}
+	return true
+}
+
+// downTargets names where the two copies of a DataDup packet go: one down each live road, or both
+// down the one road there is. ok is false before the session has any address.
+func (s *session) downTargets(now int64) (first, second netip.AddrPort, ok bool) {
+	a := s.addr.Load()
+	if a == nil {
+		return netip.AddrPort{}, netip.AddrPort{}, false
+	}
+	if s.multi.Load() {
+		if b := s.alt.Load(); b != nil && pathFresh(s.altSeen.Load(), now) {
+			if pathFresh(s.addrSeen.Load(), now) {
+				return *a, *b, true
+			}
+			return *b, *b, true
+		}
+	}
+	return *a, *a, true
+}
 
 // Server is a running relay.
 type Server struct {
@@ -392,6 +477,8 @@ func (s *Server) loopUDP() error {
 			s.handleDataDup(buf[:n], from)
 		case protocol.TypeHello:
 			s.handleHello(buf[:n], from)
+		case protocol.TypeMultipath:
+			s.handleMultipath(buf[:n], from)
 		case protocol.TypePing:
 			s.handlePing(buf[:n], from)
 		case protocol.TypeProbe:
@@ -597,18 +684,22 @@ func (s *Server) forwardUp(sid protocol.SessionID, inner []byte, from netip.Addr
 		s.stats.dropped.Add(1)
 		return
 	}
+	now := time.Now().UnixNano()
 	// After the checks above, so a forged packet cannot mark a sequence number as seen and get
 	// the real one dropped.
 	if seq != nil && !sess.upSeen.Fresh(*seq) {
 		s.stats.duplicates.Add(1)
+		sess.refreshPath(from, now)
 		return
 	}
 
 	sess.touch()
-	if cur := sess.addr.Load(); cur == nil || *cur != from {
-		f := from
-		sess.addr.Store(&f)
-		s.log.Info("client roamed", "inner_ip", sess.innerIP.String(), "new_addr", from.String())
+	if sess.notePath(from, now) {
+		if sess.multi.Load() {
+			s.log.Info("client path added", "inner_ip", sess.innerIP.String(), "addr", from.String())
+		} else {
+			s.log.Info("client roamed", "inner_ip", sess.innerIP.String(), "new_addr", from.String())
+		}
 	}
 
 	// Checked after authentication, so a forged or spoofed packet cannot spend a real session's
@@ -630,7 +721,7 @@ func (s *Server) forwardUp(sid protocol.SessionID, inner []byte, from netip.Addr
 }
 
 // handleHello switches a session to DataDup and echoes the Hello so the client does the same.
-// Accepted only from the session's current address, like Disconnect: it carries no signature, and
+// Accepted only from an address the session is using, like Disconnect: it carries no signature, and
 // a stranger holding a session id must not be able to double that session's downlink.
 func (s *Server) handleHello(pkt []byte, from netip.AddrPort) {
 	if len(pkt) != protocol.HelloLen {
@@ -647,7 +738,7 @@ func (s *Server) handleHello(pkt []byte, from netip.AddrPort) {
 		s.stats.dropped.Add(1)
 		return
 	}
-	if cur := sess.addr.Load(); cur == nil || *cur != from {
+	if !sess.knownPath(from) {
 		s.stats.dropped.Add(1)
 		return
 	}
@@ -655,6 +746,30 @@ func (s *Server) handleHello(pkt []byte, from netip.AddrPort) {
 		s.log.Info("session sends every packet twice", "inner_ip", sess.innerIP.String())
 	}
 	s.sendTo(protocol.BuildHello(sid), from)
+}
+
+// handleMultipath lets a DataDup session keep a second return address - see protocol.TypeMultipath.
+// Accepted only from a road the session already uses, and only after Hello, for the same reason as
+// Hello: it carries no signature.
+func (s *Server) handleMultipath(pkt []byte, from netip.AddrPort) {
+	if len(pkt) != protocol.MultipathLen {
+		s.stats.dropped.Add(1)
+		return
+	}
+	sid, err := protocol.DecodeSessionID(pkt)
+	if err != nil {
+		s.stats.dropped.Add(1)
+		return
+	}
+	sess := s.lookup(sid)
+	if sess == nil || !sess.dup.Load() || !sess.knownPath(from) {
+		s.stats.dropped.Add(1)
+		return
+	}
+	if !sess.multi.Swap(true) {
+		s.log.Info("session uses two paths", "inner_ip", sess.innerIP.String())
+	}
+	s.sendTo(protocol.BuildMultipath(sid), from)
 }
 
 func (s *Server) handlePing(pkt []byte, from netip.AddrPort) {
@@ -667,10 +782,7 @@ func (s *Server) handlePing(pkt []byte, from netip.AddrPort) {
 		return
 	}
 	sess.touch()
-	if cur := sess.addr.Load(); cur == nil || *cur != from {
-		f := from
-		sess.addr.Store(&f)
-	}
+	sess.notePath(from, time.Now().UnixNano())
 	s.sendTo(protocol.BuildPong(sid, stamp), from)
 }
 
@@ -732,7 +844,7 @@ func (s *Server) handleDisconnect(pkt []byte, from netip.AddrPort) {
 	// travel in clear. Accept the message only from the address the session is currently using,
 	// otherwise anyone who can observe one packet can end the session with a forged nine bytes
 	// and take the address reservation down with it.
-	if cur := sess.addr.Load(); cur == nil || *cur != from {
+	if !sess.knownPath(from) {
 		s.stats.dropped.Add(1)
 		return
 	}
@@ -775,8 +887,8 @@ func (s *Server) loopTUN() error {
 			s.stats.dropped.Add(1)
 			continue
 		}
-		addr := sess.addr.Load()
-		if addr == nil {
+		first, second, ok := sess.downTargets(time.Now().UnixNano())
+		if !ok {
 			continue
 		}
 		if !sess.down.allow(n, s.cfg.RateBytesPerSec, s.cfg.BurstBytes) {
@@ -789,10 +901,10 @@ func (s *Server) loopTUN() error {
 		}
 		if sess.dup.Load() {
 			out := protocol.EncodeDataDup(sendBuf, sess.id, sess.downSeq.Add(1), readBuf[:n])
-			s.sendData(out, *addr)
-			s.sendData(out, *addr)
+			s.sendData(out, first)
+			s.sendData(out, second)
 		} else {
-			s.sendData(protocol.EncodeData(sendBuf, sess.id, readBuf[:n]), *addr)
+			s.sendData(protocol.EncodeData(sendBuf, sess.id, readBuf[:n]), first)
 		}
 	}
 }
@@ -890,6 +1002,7 @@ func (s *Server) allocSession(from netip.AddrPort, resKey protocol.ClientID, ide
 		if live, inUse := s.byIP[previous]; inUse && live.resKey == resKey {
 			f := from
 			live.addr.Store(&f)
+			live.addrSeen.Store(time.Now().UnixNano())
 			live.touch()
 			// The identity this handshake just proved replaces the one the session was minted
 			// with. Same device - the reservation key says so - but a reinstalled client resuming
@@ -901,6 +1014,9 @@ func (s *Server) allocSession(from netip.AddrPort, resKey protocol.ClientID, ide
 			// reset here: handshakes run on loopUDP, the only goroutine touching upSeen.
 			live.upSeen = protocol.DupFilter{}
 			live.dup.Store(false)
+			live.multi.Store(false)
+			live.alt.Store(nil)
+			live.altSeen.Store(0)
 			return live, true
 		}
 	}
@@ -932,6 +1048,7 @@ func (s *Server) allocSession(from netip.AddrPort, resKey protocol.ClientID, ide
 	}
 	f := from
 	sess.addr.Store(&f)
+	sess.addrSeen.Store(time.Now().UnixNano())
 	sess.touch()
 
 	s.bySession[sid] = sess

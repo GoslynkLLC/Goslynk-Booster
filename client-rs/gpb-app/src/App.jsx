@@ -28,6 +28,8 @@ const SESSION_KEY = "gsb-session-v2";
 // Held a hand-entered relay PSK in versions up to 0.1.4; cleared on start.
 const OLD_RELAY_OVERRIDE_KEY = "gsb-relay-override-v1";
 const REGIONS_KEY = "gpb-regions-v2";
+const SERVERS_KEY = "gpb-servers-v1";
+const AUTO_SERVER = "auto";
 const POLL_MS = 60_000;
 const STATUS_POLL_MS = 1000;
 const MAX_SLOTS = 3;
@@ -50,6 +52,8 @@ function saveJson(key, value) {
 }
 
 const hasRelay = (r) => !!(r?.endpoint?.trim() && r?.psk);
+/** A lone endpoint (older server, or the build's own relay) as a relay serving every game. */
+const single = (id, r) => ({ id, endpoint: r.endpoint.trim(), games: [], entries: [] });
 
 function without(obj, key) {
   if (!(key in obj)) return obj;
@@ -63,9 +67,11 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [developerMode, setDeveloperMode] = useState(false);
   const [serverRelay, setServerRelay] = useState(EMPTY_RELAY);
+  const [serverRelays, setServerRelays] = useState([]);
   const [buildRelay, setBuildRelay] = useState(EMPTY_RELAY);
   const [games, setGames] = useState([]);
   const [regions, setRegions] = useState(() => loadJson(REGIONS_KEY, {}));
+  const [servers, setServers] = useState(() => loadJson(SERVERS_KEY, {}));
   const [notice, setNotice] = useState("");
   const [bootError, setBootError] = useState("");
   const [showRedeemModal, setShowRedeemModal] = useState(false);
@@ -92,6 +98,7 @@ export default function App() {
     setUser(data.user);
     setDeveloperMode(!!data.developerMode);
     setServerRelay(data.relay || EMPTY_RELAY);
+    setServerRelays(Array.isArray(data.relays) ? data.relays : []);
   }, []);
 
   const endSession = useCallback(
@@ -101,6 +108,7 @@ export default function App() {
       saveJson(SESSION_KEY, null);
       setUser(null);
       setServerRelay(EMPTY_RELAY);
+      setServerRelays([]);
       setStatus(IDLE_STATUS);
       setSlots([]);
       setBoostErrors({});
@@ -218,16 +226,39 @@ export default function App() {
       });
   }, [applyAuth, endSession]);
 
-  // The server decides who may boost and only hands those accounts the relay.
+  // The server decides who may boost and only hands those accounts the relays. The Rust side
+  // narrows the list to the exits meant for each game and keeps the fastest.
   const canBoost = !!user?.canBoost;
   const relay = useMemo(() => {
-    if (hasRelay(serverRelay)) return { ...serverRelay, source: "server" };
-    if (hasRelay(buildRelay)) return { ...buildRelay, source: "build" };
-    return { ...EMPTY_RELAY, source: "none" };
-  }, [serverRelay, buildRelay]);
+    if (serverRelay.psk && serverRelays.length) {
+      return { psk: serverRelay.psk, relays: serverRelays, source: "server" };
+    }
+    if (hasRelay(serverRelay)) return { psk: serverRelay.psk, relays: [single("server", serverRelay)], source: "server" };
+    if (hasRelay(buildRelay)) return { psk: buildRelay.psk, relays: [single("build", buildRelay)], source: "build" };
+    return { psk: "", relays: [], source: "none" };
+  }, [serverRelay, serverRelays, buildRelay]);
 
-  const regionIdsFor = (game) =>
-    (regions[game.id] ?? defaultRegionIds(game)).filter((id) => game.regions.some((r) => r.id === id));
+  // A saved choice whose regions all vanished (a region renamed by an update) routes nothing,
+  // so it falls back to the defaults.
+  const regionIdsFor = (game) => {
+    const known = (ids) => ids.filter((id) => game.regions.some((r) => r.id === id));
+    const saved = regions[game.id] ? known(regions[game.id]) : [];
+    return saved.length ? saved : known(defaultRegionIds(game));
+  };
+  const serverChoicesFor = (game) =>
+    relay.relays.filter((r) => !r.games?.length || r.games.includes(game.id));
+  const autoServersFor = (game) => {
+    const own = relay.relays.filter((r) => r.games?.includes(game.id));
+    return own.length ? own : relay.relays.filter((r) => !r.games?.length);
+  };
+  const serverIdFor = (game) => {
+    const id = servers[game.id];
+    return serverChoicesFor(game).some((r) => r.id === id) ? id : AUTO_SERVER;
+  };
+  const relaysFor = (game, serverId) => {
+    const picked = serverChoicesFor(game).find((r) => r.id === serverId);
+    return picked ? [{ ...picked, games: [] }] : relay.relays;
+  };
 
   const boosted = status.games || [];
   const slotState = (id) =>
@@ -235,7 +266,7 @@ export default function App() {
   const isActive = (id) => !!pendingRef.current[id] || boosted.includes(id);
   const activeCount = slots.filter(isActive).length;
 
-  async function boostGame(game, regionIds = regionIdsFor(game)) {
+  async function boostGame(game, regionIds = regionIdsFor(game), serverId = serverIdFor(game)) {
     const id = game.id;
     if (pendingRef.current[id]) return;
     if (!canBoost) {
@@ -267,7 +298,7 @@ export default function App() {
     try {
       const ids = await apiBoost({
         psk: relay.psk,
-        endpoint: relay.endpoint.trim(),
+        relays: relaysFor(game, serverId),
         gameId: id,
         regionIds,
       });
@@ -309,6 +340,25 @@ export default function App() {
       return next;
     });
     if (boosted.includes(game.id)) boostGame(game, ids);
+  }
+
+  async function onServerChange(game, serverId) {
+    setServers((prev) => {
+      const next = { ...prev, [game.id]: serverId };
+      saveJson(SERVERS_KEY, next);
+      return next;
+    });
+    if (!boosted.includes(game.id)) return;
+    // Every boosted game shares one tunnel, so moving it to another relay means rebuilding it.
+    if (boosted.length > 1) {
+      setBoostErrors((e) => ({
+        ...e,
+        [game.id]: "Server mới áp dụng khi boost lại. Mọi game dùng chung một relay, nên hãy dừng các game khác trước.",
+      }));
+      return;
+    }
+    await stopGame(game);
+    await boostGame(game, regionIdsFor(game), serverId);
   }
 
   function onPick(game) {
@@ -366,6 +416,10 @@ export default function App() {
           status={status}
           regionIdsFor={regionIdsFor}
           onRegionsChange={onRegionsChange}
+          serverChoicesFor={serverChoicesFor}
+          autoServersFor={autoServersFor}
+          serverIdFor={serverIdFor}
+          onServerChange={onServerChange}
           onStop={stopGame}
           onRetry={(g) => boostGame(g)}
           onRemove={removeSlot}

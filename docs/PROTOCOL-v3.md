@@ -279,6 +279,33 @@ a game uses about 10 KB/s, so doubling it is cheap next to a loss burst on a con
 
 DataDup is 4 bytes longer than Data: 1400 + 41 = 1441, still under 1500.
 
+## Multipath - the two copies over two roads
+
+Also added without a version bump. With DataDup on, the two copies can take different roads to
+the same exit relay: one straight to it, one through an entry forwarder (a host that only DNATs
+UDP to the exit, see `relay/deploy/setup-entry.sh`), so a loss burst on one road costs nothing.
+
+| type | size | layout |
+|---|---|---|
+| `0xC` Multipath | 9 | header, session id |
+
+- The client picks its roads before sending anything on them: it sends 4 Probes on each (the
+  direct road and at most 3 entries) and takes the median. The fastest road is the main one; the
+  next is kept as the second road if it is within max(15 ms, 50%) of the main one.
+- Once Hello is echoed, the client sends Multipath on its main road until the relay echoes it.
+  The relay accepts it only for a DataDup session and only from an address the session already
+  knows (unsigned, like Hello), and then lets that session hold two return addresses. A relay
+  older than this drops `0xC` and the client keeps both copies on the main road.
+- After the echo the client pings on both roads every second. On a Multipath session, a new
+  source address with a valid Ping or Data fills the second slot instead of replacing the first;
+  when both slots are taken, it replaces the one silent longer. A slot not heard from for 3
+  seconds is stale.
+- The relay sends one DataDup copy to each live address, or both copies to the single live one.
+  The client runs one reader per socket sharing one duplicate filter.
+- Hello, Disconnect and Multipath are accepted from either known address. Probe never moves or
+  adds an address.
+- A handshake that resumes a live session forgets the second address and turns Multipath off.
+
 ## MTU arithmetic
 
 Unchanged. The handshake grew; Data did not, so the per-packet overhead is the same 37 bytes and

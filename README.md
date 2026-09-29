@@ -3,6 +3,60 @@
 Latency reducer: game traffic goes through a Linux VPS relay. Client is **Rust** (TUN/route)
 with a **Tauri + React** UI.
 
+## Tổng quan (tiếng Việt)
+
+Goslynk Booster làm giống ExitLag: chỉ gói tin của game đi qua một **server relay** nằm gần
+server game, còn web, video… vẫn đi mạng thường. Relay có đường tốt tới server game, nên ping
+trong game thấp và ổn định hơn so với để nhà mạng tự đi vòng.
+
+```mermaid
+flowchart LR
+  App["App trên máy người chơi"] -->|"đường 1: thẳng"| Exit["Relay exit (VN-1 / SG-1)"]
+  App -->|"đường 2 (nếu có)"| Entry["Node trung gian (entry)"]
+  Entry --> Exit
+  Exit --> Game["Server game"]
+```
+
+**Khi bấm Boost, app tự làm:**
+
+1. Lấy danh sách server relay từ tài khoản (admin quản lý ở tab **Quản trị → Relay**).
+2. Chọn server dành riêng cho game đó. Ví dụ Liên Minh/ĐTCL dùng **VN-1**, các game server
+   Singapore dùng **SG-1**. Nếu có nhiều server thì app kết nối thử tất cả cùng lúc và giữ
+   server nhanh nhất.
+3. Đo từng đường tới server đó (đi thẳng, hoặc qua node trung gian) rồi chọn đường nhanh nhất.
+4. Mỗi gói game được **gửi 2 bản**. Có 2 đường thì mỗi đường mang 1 bản (multipath), nên một
+   đường rớt gói hay giật thì bản kia vẫn tới. Relay giữ bản đến trước và bỏ bản trùng.
+
+Người chơi có thể tự chọn server ở ô **Server** trong từng game trên màn Home (mặc định là
+**Tự động**). Server dành riêng cho một game, như VN-1 cho Liên Minh, chỉ hiện ở game đó.
+
+**Các server hiện có**
+
+| Server | Vị trí | Dùng cho | Ghi chú |
+|---|---|---|---|
+| VN-1 | Việt Nam | Liên Minh Huyền Thoại, Đấu Trường Chân Lý | Cách server LMHT VN ~2,5 ms |
+| SG-1 | Singapore | Các game server Singapore (Valorant, CS2, PUBG, Steam, Roblox…) | Mặc định cho mọi game |
+
+Đo thực tế từ mạng FPT Hà Nội: tới VN-1 khoảng 6 ms, **LMHT qua VN-1 khoảng 9 ms**, so với
+90–120 ms khi đi qua SG-1 và 26 ms khi dùng ExitLag.
+
+**Thêm node trung gian (entry) để giảm ping và chống rớt gói**
+
+Entry chỉ chuyển tiếp gói UDP tới một exit, không cần PSK hay cài relayd. Entry chỉ có lợi khi
+nó đi **nhà mạng khác** với exit, hoặc có đường tới Singapore tốt hơn. Ví dụ VPS Viettel/VNPT
+đi thẳng sang Singapore khoảng 30 ms, trong khi FPT đi vòng qua Hong Kong mất khoảng 80 ms.
+VN-1 cũng đi FPT, nên không làm entry cho SG-1 được.
+
+1. Trên VPS mới: `sudo relay/deploy/setup-entry.sh sg-1=74.81.54.113:51820` (hoặc
+   `vn-1=180.93.117.132:51820`).
+2. Trong app: **Quản trị → Relay → Thêm relay**, vai trò **Entry**, chọn exit tương ứng.
+3. App tự đo và dùng entry nếu entry nhanh hơn. Nếu entry và đường thẳng nhanh gần bằng nhau,
+   app gửi song song qua cả hai.
+
+Kiểm tra relay có multipath hay không:
+`go run ./cmd/gpb-multipath-check -relay HOST:51820 [-entry HOST:PORT] -psk-file ./psk`
+(chạy trong thư mục `relay/`).
+
 ## Layout
 
 ```
@@ -46,13 +100,21 @@ npm run tauri:build
 sudo "../target/release/bundle/macos/Goslynk Booster.app/Contents/MacOS/gpb-app"
 ```
 
-Players sign in with a Goslynk account; the app gets the relay endpoint and PSK from the API
-after login. Accounts with the `admin` role get a **Quản trị** screen in the app (developer mode,
-roles, locks, relay, history). To point a dev build at a local API:
-`VITE_API_BASE=http://127.0.0.1:8787/api npm run dev`.
+Players sign in with a Goslynk account; the app gets the relay list and PSK from the API after
+login. Accounts with the `admin` role get a **Quản trị** screen in the app (developer mode,
+roles, locks, relays, PSK, history). Relays can also be managed on the API host:
 
-GitHub Actions builds both installers on every push to `main` (workflow **Build apps**); download
-them from the run's artifacts, or from the release when a `v*` tag is pushed.
+```bash
+node --env-file=/etc/goslynk-api/env src/cli.js list-relays
+node --env-file=/etc/goslynk-api/env src/cli.js add-relay vn-1 exit 203.0.113.10:51820 \
+  --name "Goslynk VN-1" --location "Việt Nam" --games lol,tft
+node --env-file=/etc/goslynk-api/env src/cli.js add-relay vn-1-e1 entry 198.51.100.7:51820 --exit vn-1
+```
+
+To point a dev build at a local API: `VITE_API_BASE=http://127.0.0.1:8787/api npm run dev`.
+
+GitHub Actions builds both installers (workflow **Build apps**) into a draft release:
+`gh workflow run build.yml --ref hitori-main`.
 
 ### Auto-update
 
@@ -77,14 +139,15 @@ npm run tauri:build
 
 Game ranges live in `profiles/*.json` and are compiled into the app. To change them without
 rebuilding, put a file named `<game id>.json` (`lol`, `tft`, `pubg`, `valorant`, `cs2`,
-`naraka`, `deltaforce`, `wot`, `steam`) in `<app data>/profiles/`:
+`naraka`, `deltaforce`, `wot`, `steam`, `roblox`) in `<app data>/profiles/`:
 
 - Windows: `%APPDATA%\com.goslynk.booster\profiles\`
 - macOS: `~/Library/Application Support/com.goslynk.booster/profiles/`
 
 Only route regions close to the relay. A region with `"defaultOn": false` (a server far from
 the relay, e.g. Naraka Tokyo or Delta Force Hong Kong from Singapore) stays unticked until the
-player asks for it.
+player asks for it. Which relay a game uses is set by the relay's **games** list in the admin
+panel (empty = every game), not by the profile; LoL and TFT (region `vn`) are served by VN-1.
 
 ### Daemon (CLI)
 
@@ -136,7 +199,10 @@ See [relay/README.md](relay/README.md).
 ```bash
 cd client-rs && cargo test
 cd relay && make test
+cd client-rs/gpb-app && npx vite build
 ```
+
+Protocol details, including DataDup and Multipath: [docs/PROTOCOL-v3.md](docs/PROTOCOL-v3.md).
 
 ## License
 
