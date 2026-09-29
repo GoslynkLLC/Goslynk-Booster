@@ -178,6 +178,7 @@ async fn boost_game(
 ) -> Result<Vec<String>, String> {
     let _op = state.ops.lock().await;
 
+    profiles::ensure_supported(&args.game_id)?;
     let (profile, _) = profiles::load(&app, &args.game_id)?;
     let cidrs = profile
         .region_cidrs(Some(&args.game_id), args.region_ids.as_deref())

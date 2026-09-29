@@ -13,8 +13,8 @@
       "lobbyAddresses": [],
       "regions": [
         {
-          "id": "vn",
-          "name": "Việt Nam",
+          "id": "sg",
+          "name": "Singapore",
           "source": "upstream",
           "note": "Chưa bắt gói tin xác nhận.",
           "cidrs": [
