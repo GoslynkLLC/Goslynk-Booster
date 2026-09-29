@@ -8,10 +8,23 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
+const WINDOWS: &str = "windows";
+const MACOS: &str = "macos";
+const BOTH: &[&str] = &[WINDOWS, MACOS];
+
+/// The OS this build runs on, named as in `BuiltinGame::platforms`.
+const CURRENT_PLATFORM: &str = if cfg!(target_os = "macos") {
+    MACOS
+} else {
+    WINDOWS
+};
+
 struct BuiltinGame {
     id: &'static str,
     name_vi: &'static str,
     is_default: bool,
+    /// Where the game runs and can be boosted.
+    platforms: &'static [&'static str],
     json: &'static str,
 }
 
@@ -21,55 +34,71 @@ const BUILTIN: &[BuiltinGame] = &[
         id: "pubg",
         name_vi: "PUBG",
         is_default: false,
+        platforms: &[WINDOWS],
         json: include_str!("../../../../profiles/pubg-vn.json"),
     },
     BuiltinGame {
         id: "cs2",
         name_vi: "CS2",
         is_default: false,
+        platforms: BOTH,
         json: include_str!("../../../../profiles/cs2-vn.json"),
     },
     BuiltinGame {
         id: "valorant",
         name_vi: "VALORANT",
         is_default: false,
+        platforms: &[WINDOWS],
         json: include_str!("../../../../profiles/valorant-vn.json"),
     },
     BuiltinGame {
         id: "tft",
         name_vi: "Đấu Trường Chân Lý",
         is_default: false,
+        platforms: &[WINDOWS],
         json: include_str!("../../../../profiles/tft-vn.json"),
     },
     BuiltinGame {
         id: "lol",
         name_vi: "Liên Minh Huyền Thoại",
         is_default: true,
+        platforms: BOTH,
         json: include_str!("../../../../profiles/lol-vn.json"),
     },
     BuiltinGame {
         id: "deltaforce",
         name_vi: "Delta Force",
         is_default: false,
+        platforms: &[WINDOWS],
         json: include_str!("../../../../profiles/deltaforce-vn.json"),
     },
     BuiltinGame {
         id: "wot",
         name_vi: "World of Tanks",
         is_default: false,
+        platforms: &[WINDOWS],
         json: include_str!("../../../../profiles/wot-asia.json"),
     },
     BuiltinGame {
         id: "naraka",
         name_vi: "Naraka: Bladepoint",
         is_default: false,
+        platforms: &[WINDOWS],
         json: include_str!("../../../../profiles/naraka-vn.json"),
     },
     BuiltinGame {
         id: "steam",
         name_vi: "Steam",
         is_default: false,
+        platforms: BOTH,
         json: include_str!("../../../../profiles/steam-sg.json"),
+    },
+    BuiltinGame {
+        id: "roblox",
+        name_vi: "Roblox",
+        is_default: false,
+        platforms: &[MACOS],
+        json: include_str!("../../../../profiles/roblox-sg.json"),
     },
 ];
 
@@ -93,6 +122,9 @@ pub struct GameInfo {
     pub custom_profile: bool,
     pub process_names: Vec<String>,
     pub regions: Vec<RegionInfo>,
+    pub platforms: &'static [&'static str],
+    /// Whether this machine's OS is one of `platforms`.
+    pub supported: bool,
 }
 
 pub fn override_path(app: &AppHandle, game_id: &str) -> Option<PathBuf> {
@@ -115,6 +147,31 @@ pub fn load(app: &AppHandle, game_id: &str) -> Result<(GameProfile, bool), Strin
     let profile = GameProfile::from_json(builtin.json)
         .map_err(|e| format!("Profile có sẵn của '{game_id}' lỗi: {e}"))?;
     Ok((profile, false))
+}
+
+fn platform_label(platform: &str) -> &'static str {
+    if platform == MACOS {
+        "macOS"
+    } else {
+        "Windows"
+    }
+}
+
+/// Refuses a game that does not run on this OS, whatever the UI let through.
+pub fn ensure_supported(game_id: &str) -> Result<(), String> {
+    let builtin = BUILTIN
+        .iter()
+        .find(|g| g.id == game_id)
+        .ok_or_else(|| format!("Không có game '{game_id}'."))?;
+    if builtin.platforms.contains(&CURRENT_PLATFORM) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} chưa boost được trên {}.",
+            builtin.name_vi,
+            platform_label(CURRENT_PLATFORM)
+        ))
+    }
 }
 
 /// First relay endpoint any built-in profile names.
@@ -152,6 +209,8 @@ pub fn list_games(app: AppHandle) -> Result<Vec<GameInfo>, String> {
                     cidr_count: r.cidrs.len(),
                 })
                 .collect(),
+            platforms: b.platforms,
+            supported: b.platforms.contains(&CURRENT_PLATFORM),
         });
     }
     Ok(out)
@@ -168,6 +227,20 @@ mod tests {
             assert!(p.game(Some(b.id)).is_ok(), "{} missing its own game", b.id);
         }
         assert_eq!(BUILTIN.iter().filter(|b| b.is_default).count(), 1);
+        assert!(BUILTIN.iter().all(|b| !b.platforms.is_empty()));
+        assert!(
+            BUILTIN.iter().any(|b| b.is_default && b.platforms == BOTH),
+            "the default game must run everywhere"
+        );
         assert!(builtin_relay_endpoint().is_some());
+    }
+
+    #[test]
+    fn unsupported_games_are_refused() {
+        for b in BUILTIN {
+            let supported = b.platforms.contains(&CURRENT_PLATFORM);
+            assert_eq!(ensure_supported(b.id).is_ok(), supported, "{}", b.id);
+        }
+        assert!(ensure_supported("nope").is_err());
     }
 }

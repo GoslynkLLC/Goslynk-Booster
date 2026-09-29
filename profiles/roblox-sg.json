@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-09-29T00:00:00Z",
+  "note": "Roblox, Singapore. From Roblox client logs on a Mac in Vietnam (2026-09-22 to 09-29): matches connected over UDP to the UDMUX front ends 128.116.97.33 and 128.116.50.33 (the game server itself sits on a private 10.x address behind them). Every /24 of Roblox's 128.116.0.0/17 (AS22697) was then probed from the Singapore relay with a TCP connect to x.x.x.3:443, the host each /24 keeps for the client's region ping: only 128.116.46, .50, .54 and .97 answer in under 2 ms, so exactly those four /24s are routed. Asset and avatar downloads use CDNs outside this range and stay off the tunnel.",
+  "games": [
+    {
+      "id": "roblox",
+      "name": "Roblox",
+      "processNames": ["RobloxPlayerBeta.exe", "RobloxPlayer"],
+      "lobbyAddresses": [],
+      "regions": [
+        {
+          "id": "sgp",
+          "name": "Singapore",
+          "source": "roblox-udmux:sgp+relay-probe",
+          "note": "Máy chủ Roblox Singapore, nơi người chơi Việt Nam thường được xếp vào.",
+          "cidrs": [
+            "128.116.46.0/24",
+            "128.116.50.0/24",
+            "128.116.54.0/24",
+            "128.116.97.0/24"
+          ]
+        }
+      ]
+    }
+  ],
+  "relays": [
+    {
+      "id": "sg-1",
+      "name": "Goslynk SG-1",
+      "location": "Singapore",
+      "endpoint": "74.81.54.113:51820"
+    }
+  ]
+}

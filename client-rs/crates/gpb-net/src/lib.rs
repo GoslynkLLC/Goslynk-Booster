@@ -52,8 +52,8 @@ pub use macos::{
 
 #[cfg(target_os = "windows")]
 pub use windows::{
-    default_gateway, is_elevated, open_tun, prioritize_current_thread, WinRouteTable, WinRouteTable as PlatformRouteTable,
-    WinTun,
+    default_gateway, is_elevated, open_tun, prioritize_current_thread, system_tool, WinRouteTable,
+    WinRouteTable as PlatformRouteTable, WinTun,
 };
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]

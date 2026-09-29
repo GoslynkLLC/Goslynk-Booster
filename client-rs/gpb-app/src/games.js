@@ -3,6 +3,7 @@ import deltaforce from "./assets/games/deltaforce.jpg";
 import lol from "./assets/games/lol.jpg";
 import naraka from "./assets/games/naraka.jpg";
 import pubg from "./assets/games/pubg.jpg";
+import roblox from "./assets/games/roblox.jpg";
 import steam from "./assets/games/steam.jpg";
 import tft from "./assets/games/tft.jpg";
 import valorant from "./assets/games/valorant.jpg";
@@ -20,9 +21,20 @@ export const GAME_ART = {
   wot: { src: wot, focus: "30% center" },
   naraka: { src: naraka, focus: "62% center" },
   steam: { src: steam, focus: "76% center" },
+  roblox: { src: roblox, focus: "50% center" },
 };
 
 const IS_MAC = /Mac/i.test(navigator.platform || navigator.userAgent);
+
+export const PLATFORM_NAME = { windows: "Windows", macos: "macOS" };
+export const OS_NAME = IS_MAC ? PLATFORM_NAME.macos : PLATFORM_NAME.windows;
+
+// Older builds sent no `supported`; treat that as playable.
+export const isSupported = (game) => game.supported !== false;
+
+export function platformsLabel(game) {
+  return (game.platforms || []).map((p) => PLATFORM_NAME[p] || p).join(" và ");
+}
 
 // The process name that matters on this OS: the Windows `.exe` or the macOS binary.
 export function processLabel(names = []) {

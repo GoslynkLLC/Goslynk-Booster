@@ -70,6 +70,7 @@ pub struct LiveTunnel {
     cidrs: BTreeSet<String>,
     relay_ip: Ipv4Addr,
     tun_name: String,
+    _tuning: crate::netopt::BoostTuning,
 }
 
 impl LiveTunnel {
@@ -199,6 +200,7 @@ pub fn establish(req: &TunnelRequest) -> Result<(LiveTunnel, ConnectResult), Str
             cidrs,
             relay_ip,
             tun_name: result.tun_name.clone(),
+            _tuning: crate::netopt::BoostTuning::start(),
         },
         result,
     ))

@@ -197,3 +197,19 @@ func TestPingRoundTrip(t *testing.T) {
 		t.Fatalf("type = %d, want TypePong", msgType)
 	}
 }
+
+func TestIPv4AddrsRejectOtherVersions(t *testing.T) {
+	v4 := []byte{0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 10, 77, 0, 2, 8, 8, 8, 8}
+	if _, ok := SrcIPv4(v4); !ok {
+		t.Fatal("IPv4 packet rejected")
+	}
+	// Same bytes with an IPv6 version nibble: offsets 12-20 are inside the IPv6 source address.
+	v6 := append([]byte{0x60}, v4[1:]...)
+	v6 = append(v6, make([]byte, 20)...)
+	if _, ok := SrcIPv4(v6); ok {
+		t.Fatal("SrcIPv4 accepted an IPv6 packet")
+	}
+	if _, ok := DstIPv4(v6); ok {
+		t.Fatal("DstIPv4 accepted an IPv6 packet")
+	}
+}

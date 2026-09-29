@@ -38,3 +38,6 @@ backend/server/.env
 .DS_Store
 .vs/
 .reset-backup/
+
+# ECC (affaan-m/ECC) Cursor install, local to this machine
+.cursor/

@@ -81,6 +81,10 @@ if [[ "$USE_FIREWALLD" == "yes" ]]; then
     -s "$SUBNET" -o "$WAN" -j ACCEPT >/dev/null
   firewall-cmd --permanent --direct --add-rule ipv4 filter FORWARD 0 \
     -d "$SUBNET" -i "$WAN" -m state --state RELATED,ESTABLISHED -j ACCEPT >/dev/null
+  # Priority -1 sorts this reject above the accepts. No SMTP, or spam sent through the tunnel
+  # gets this VPS's IP blacklisted.
+  firewall-cmd --permanent --direct --add-rule ipv4 filter FORWARD -1 \
+    -s "$SUBNET" -p tcp --dport 25 -j REJECT >/dev/null
 
   firewall-cmd --reload >/dev/null
   echo "==> firewalld saved the configuration (permanent), it survives reboots"
@@ -105,6 +109,9 @@ else
   add_rule nat POSTROUTING -s "$SUBNET" -o "$WAN" -j MASQUERADE
   add_rule filter FORWARD -s "$SUBNET" -o "$WAN" -j ACCEPT
   add_rule filter FORWARD -d "$SUBNET" -i "$WAN" -m state --state RELATED,ESTABLISHED -j ACCEPT
+  # Inserted after the accepts so it lands above them. No SMTP, or spam sent through the tunnel
+  # gets this VPS's IP blacklisted.
+  add_rule filter FORWARD -s "$SUBNET" -p tcp --dport 25 -j REJECT
 
   # MSS clamping is mandatory; without it TCP over the tunnel stalls on large packets.
   # (PUBG gameplay is UDP, but HTTPS traffic shares the same IP ranges and is TCP.)

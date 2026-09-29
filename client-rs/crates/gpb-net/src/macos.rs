@@ -108,7 +108,7 @@ pub fn open_utun(
 
     // Point-to-point: ifconfig utunX inet CLIENT PEER mtu MTU up
     run_cmd(
-        "ifconfig",
+        "/sbin/ifconfig",
         &[
             &name,
             "inet",
@@ -208,7 +208,7 @@ pub fn prioritize_current_thread() {
 
 /// Parse `route -n get default` for gateway and interface.
 pub fn default_gateway() -> Result<(Ipv4Addr, String), NetError> {
-    let out = Command::new("route")
+    let out = Command::new("/sbin/route")
         .args(["-n", "get", "default"])
         .output()
         .map_err(NetError::Io)?;
@@ -265,8 +265,8 @@ impl MacRouteTable {
 impl RouteTable for MacRouteTable {
     fn pin_host(&mut self, host: Ipv4Addr, via_gateway: Ipv4Addr, _iface: &str) -> Result<(), NetError> {
         let h = host.to_string();
-        let _ = run_cmd("route", &["-n", "delete", "-host", &h]);
-        run_cmd("route", &["-n", "add", "-host", &h, &via_gateway.to_string()])?;
+        let _ = run_cmd("/sbin/route", &["-n", "delete", "-host", &h]);
+        run_cmd("/sbin/route", &["-n", "add", "-host", &h, &via_gateway.to_string()])?;
         self.pinned_hosts.push(host);
         Ok(())
     }
@@ -274,8 +274,8 @@ impl RouteTable for MacRouteTable {
     fn add_cidr(&mut self, cidr: &str, _gateway: Ipv4Addr, iface: &str) -> Result<(), NetError> {
         let (net, bits) = parse_cidr(cidr)?;
         let dest = format!("{net}/{bits}");
-        let _ = run_cmd("route", &["-n", "delete", "-net", &dest]);
-        run_cmd("route", &["-n", "add", "-net", &dest, "-interface", iface])?;
+        let _ = run_cmd("/sbin/route", &["-n", "delete", "-net", &dest]);
+        run_cmd("/sbin/route", &["-n", "add", "-net", &dest, "-interface", iface])?;
         self.installed_cidrs.push(cidr.to_string());
         Ok(())
     }
@@ -283,7 +283,7 @@ impl RouteTable for MacRouteTable {
     fn delete_cidr(&mut self, cidr: &str) -> Result<(), NetError> {
         let (net, bits) = parse_cidr(cidr)?;
         let _ = run_cmd(
-            "route",
+            "/sbin/route",
             &["-n", "delete", "-net", &format!("{net}/{bits}")],
         );
         self.installed_cidrs.retain(|c| c != cidr);
@@ -291,7 +291,7 @@ impl RouteTable for MacRouteTable {
     }
 
     fn delete_host(&mut self, host: Ipv4Addr) -> Result<(), NetError> {
-        let _ = run_cmd("route", &["-n", "delete", "-host", &host.to_string()]);
+        let _ = run_cmd("/sbin/route", &["-n", "delete", "-host", &host.to_string()]);
         self.pinned_hosts.retain(|h| *h != host);
         Ok(())
     }

@@ -1,6 +1,6 @@
 [package]
 name = "gpb-app"
-version = "0.1.5"
+version = "0.1.6"
 description = "Goslynk Booster desktop app"
 authors = ["Goslynk LLC"]
 edition = "2021"
@@ -32,3 +32,4 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+base64 = "0.22"

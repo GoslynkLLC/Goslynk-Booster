@@ -17,6 +17,24 @@ pub fn is_elevated() -> bool {
     unsafe { windows_sys::Win32::UI::Shell::IsUserAnAdmin() != 0 }
 }
 
+/// Full path of a tool under System32. The app runs elevated from a folder the user can write to
+/// (per-user install), and a bare name is looked up in the app's own folder first, so a planted
+/// `route.exe` there would run as Administrator. The API, not `%SystemRoot%`, which a user can
+/// override in their own environment.
+pub fn system_tool(name: &str) -> PathBuf {
+    use std::os::windows::ffi::OsStringExt;
+    let mut buf = [0u16; 260];
+    let n = unsafe {
+        windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32)
+    } as usize;
+    let dir = if n > 0 && n < buf.len() {
+        PathBuf::from(std::ffi::OsString::from_wide(&buf[..n]))
+    } else {
+        PathBuf::from(r"C:\Windows\System32")
+    };
+    dir.join(name)
+}
+
 /// Lets a packet pump preempt the game's own threads when the CPU is saturated.
 pub fn prioritize_current_thread() {
     use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST};
@@ -201,7 +219,7 @@ impl Drop for WinTun {
 
 /// Default IPv4 gateway and outgoing interface name from `route print`.
 pub fn default_gateway() -> Result<(Ipv4Addr, String), NetError> {
-    let out = Command::new("route")
+    let out = Command::new(system_tool("route.exe"))
         .args(["print", "0.0.0.0"])
         .output()
         .map_err(NetError::Io)?;
@@ -370,7 +388,10 @@ fn cidr_to_net_mask(cidr: &str) -> Result<(Ipv4Addr, Ipv4Addr), NetError> {
 }
 
 fn run_cmd(bin: &str, args: &[&str]) -> Result<(), NetError> {
-    let out = Command::new(bin).args(args).output().map_err(NetError::Io)?;
+    let out = Command::new(system_tool(&format!("{bin}.exe")))
+        .args(args)
+        .output()
+        .map_err(NetError::Io)?;
     if !out.status.success() {
         // netsh and route print their errors on stdout.
         let stderr = String::from_utf8_lossy(&out.stderr);
