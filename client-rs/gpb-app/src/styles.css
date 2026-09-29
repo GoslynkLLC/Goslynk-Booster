@@ -860,6 +860,21 @@ input:disabled {
   font-size: 0.8rem;
 }
 
+.slot-server {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.slot-server select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+}
+
 .slot-regions summary {
   cursor: pointer;
   color: var(--muted);

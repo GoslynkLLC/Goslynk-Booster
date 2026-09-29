@@ -13,10 +13,10 @@
       "lobbyAddresses": [],
       "regions": [
         {
-          "id": "sg",
-          "name": "Singapore",
+          "id": "vn",
+          "name": "Việt Nam",
           "source": "capture:upstream-2026-09-22",
-          "note": "From upstream GamePingBooster captures (2026-09-22, Hanoi, six sessions): every match went to 151.106.247.7 on UDP 7331, about 54 packets/s. 151.106.247.0/24 is announced by AS6507 exactly, so only that /24 is routed. The server answers no ICMP or TCP, so there is no landmark - compare ping in game with the tunnel on and off.",
+          "note": "Server trận đấu 151.106.247.7 (UDP 7331) đặt tại Việt Nam. Relay VN-1 cách server khoảng 2,5 ms; relay Singapore đi vòng qua Hong Kong nên chậm hơn nhiều.",
           "cidrs": [
             "151.106.247.0/24"
           ]
@@ -25,6 +25,12 @@
     }
   ],
   "relays": [
+    {
+      "id": "vn-1",
+      "name": "Goslynk VN-1",
+      "location": "Việt Nam",
+      "endpoint": "180.93.117.132:51820"
+    },
     {
       "id": "sg-1",
       "name": "Goslynk SG-1",

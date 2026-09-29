@@ -71,7 +71,29 @@ function useConnectedSince(connected) {
   return since;
 }
 
-function Slot({ game, state, error, regionIds, onRegionsChange, onStop, onRetry, onRemove }) {
+const serverName = (r) => `${r.name || r.id}${r.location ? ` · ${r.location}` : ""}`;
+
+function ServerPicker({ choices, auto, value, disabled, onChange }) {
+  if (choices.length < 2) return null;
+  const autoLabel = auto.length === 1 ? `Tự động · ${auto[0].name || auto[0].id}` : "Tự động (nhanh nhất)";
+  const recommended = new Set(auto.map((r) => r.id));
+  return (
+    <label className="slot-server">
+      <span className="muted">Server</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+        <option value="auto">{autoLabel}</option>
+        {choices.map((r) => (
+          <option key={r.id} value={r.id}>
+            {serverName(r)}
+            {recommended.has(r.id) ? " (khuyên dùng)" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function Slot({ game, state, error, regionIds, onRegionsChange, server, onStop, onRetry, onRemove }) {
   const art = GAME_ART[game.id];
   const busy = state === "connecting" || state === "stopping";
   const regions = (game.regions || []).filter((r) => r.cidrCount > 0);
@@ -92,6 +114,8 @@ function Slot({ game, state, error, regionIds, onRegionsChange, onStop, onRetry,
         <p className="slot-title">{game.nameVi || game.name}</p>
         <p className="slot-detail">{detailLabel(game)}</p>
         {error ? <p className="error slot-error">{error}</p> : null}
+
+        <ServerPicker {...server} disabled={busy} />
 
         <details className="slot-regions">
           <summary>
@@ -144,6 +168,10 @@ export default function HomeScreen({
   status,
   regionIdsFor,
   onRegionsChange,
+  serverChoicesFor,
+  autoServersFor,
+  serverIdFor,
+  onServerChange,
   onStop,
   onRetry,
   onRemove,
@@ -191,6 +219,12 @@ export default function HomeScreen({
             error={errors[g.id]}
             regionIds={regionIdsFor(g)}
             onRegionsChange={(ids) => onRegionsChange(g, ids)}
+            server={{
+              choices: serverChoicesFor(g),
+              auto: autoServersFor(g),
+              value: serverIdFor(g),
+              onChange: (id) => onServerChange(g, id),
+            }}
             onStop={() => onStop(g)}
             onRetry={() => onRetry(g)}
             onRemove={() => onRemove(g)}
