@@ -7,6 +7,7 @@ import {
   apiListGames,
   apiLogout,
   apiMe,
+  apiOptimizeNetwork,
   apiUnboost,
   errMsg,
   isSessionRejected,
@@ -160,6 +161,13 @@ export default function App() {
     }, POLL_MS);
     return () => clearInterval(id);
   }, [user, applyAuth, endSession]);
+
+  const optimizedRef = useRef(false);
+  useEffect(() => {
+    if (!user || optimizedRef.current) return;
+    optimizedRef.current = true;
+    apiOptimizeNetwork(true).catch(() => {});
+  }, [user]);
 
   const refreshStatus = useCallback(async () => {
     try {

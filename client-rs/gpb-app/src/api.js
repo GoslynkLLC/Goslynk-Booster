@@ -125,6 +125,11 @@ export function apiGetStatus() {
   return invoke("get_status");
 }
 
+/** Resolves to how many adapters got Google DNS, or null when the automatic run was skipped. */
+export function apiOptimizeNetwork(auto) {
+  return invoke("optimize_network", { auto });
+}
+
 export function errMsg(e) {
   if (typeof e === "string") return e;
   if (e?.message) return e.message;

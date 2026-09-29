@@ -8,6 +8,9 @@ fn main() {
         if args.len() == 3 && args[1] == gpb_app_lib::HELPER_FLAG {
             std::process::exit(gpb_app_lib::run_tunnel_helper(std::path::Path::new(&args[2])));
         }
+        if args.len() == 2 && args[1] == gpb_app_lib::OPTIMIZE_FLAG {
+            std::process::exit(gpb_app_lib::run_optimize_network());
+        }
     }
     gpb_app_lib::run()
 }

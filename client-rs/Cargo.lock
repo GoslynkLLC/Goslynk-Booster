@@ -1341,8 +1341,9 @@ dependencies = [
 
 [[package]]
 name = "gpb-app"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
+ "base64 0.22.1",
  "gpb-net",
  "gpb-profile",
  "gpb-protocol",
@@ -1361,7 +1362,7 @@ dependencies = [
 
 [[package]]
 name = "gpb-daemon"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -1376,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "gpb-net"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "libc",
  "thiserror 2.0.20",
@@ -1386,7 +1387,7 @@ dependencies = [
 
 [[package]]
 name = "gpb-profile"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "rand",
  "serde",
@@ -1396,7 +1397,7 @@ dependencies = [
 
 [[package]]
 name = "gpb-protocol"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "hex",
  "hmac",
@@ -1410,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "gpb-tunnel"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "gpb-net",
  "gpb-protocol",

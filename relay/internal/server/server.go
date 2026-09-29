@@ -1035,10 +1035,24 @@ func (s *Server) sendTo(pkt []byte, to netip.AddrPort) {
 	s.stats.txBytes.Add(uint64(len(pkt)))
 }
 
-// isForbiddenDst blocks clients from reaching the VPS's own private network.
+// Ranges netip does not classify as private but that are never a game server: carrier-grade NAT
+// (often the provider's internal network), "this network" and the reserved/broadcast block.
+var reservedDst = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+}
+
+// isForbiddenDst blocks clients from reaching the VPS's own private network and each other:
+// inside the subnet only the relay itself is reachable, so one user cannot probe another's machine.
 func (s *Server) isForbiddenDst(dst netip.Addr) bool {
 	if s.cfg.Subnet.Contains(dst) {
-		return false // talking to the relay or to other clients in the subnet is fine
+		return dst != s.relayIP
+	}
+	for _, p := range reservedDst {
+		if p.Contains(dst) {
+			return true
+		}
 	}
 	return dst.IsLoopback() ||
 		dst.IsPrivate() ||

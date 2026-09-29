@@ -625,17 +625,23 @@ func DecodeSessionID(pkt []byte) (SessionID, error) {
 	return sid, nil
 }
 
-// SrcIPv4 and DstIPv4 read the addresses out of an IPv4 header (offsets 12 and 16).
+// SrcIPv4 and DstIPv4 read the addresses out of an IPv4 header (offsets 12 and 16). Anything
+// else fails: the TUN device goes by the version nibble, so an IPv6 packet whose address bytes
+// happen to sit at those offsets would otherwise pass the relay's source and destination checks.
 func SrcIPv4(ipPacket []byte) (netip.Addr, bool) {
-	if len(ipPacket) < 20 {
+	if !isIPv4(ipPacket) {
 		return netip.Addr{}, false
 	}
 	return netip.AddrFrom4([4]byte(ipPacket[12:16])), true
 }
 
 func DstIPv4(ipPacket []byte) (netip.Addr, bool) {
-	if len(ipPacket) < 20 {
+	if !isIPv4(ipPacket) {
 		return netip.Addr{}, false
 	}
 	return netip.AddrFrom4([4]byte(ipPacket[16:20])), true
+}
+
+func isIPv4(ipPacket []byte) bool {
+	return len(ipPacket) >= 20 && ipPacket[0]>>4 == 4
 }

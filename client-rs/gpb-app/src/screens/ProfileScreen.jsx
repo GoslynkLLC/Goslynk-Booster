@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { errMsg, isSessionRejected, profileApi } from "../api.js";
+import { apiOptimizeNetwork, errMsg, isSessionRejected, profileApi } from "../api.js";
 import { ROLE_LABEL, shortDate, shortDateTime, vipLines } from "../format.js";
 
 export default function ProfileScreen({ user, onUpdated, onSessionRejected, onRedeem }) {
@@ -47,6 +47,7 @@ export default function ProfileScreen({ user, onUpdated, onSessionRejected, onRe
       <InfoPanel user={user} guard={guard} onUpdated={onUpdated} />
       <PasswordPanel guard={guard} />
       <SessionsPanel guard={guard} deviceLimit={user.deviceLimit} />
+      <NetworkPanel />
     </section>
   );
 }
@@ -255,6 +256,43 @@ function SessionsPanel({ guard, deviceLimit }) {
       {error ? <p className="error">{error}</p> : null}
       <button type="button" className="btn ghost sm danger-text" disabled={busy || others === 0} onClick={revokeOthers}>
         Đăng xuất các thiết bị khác
+      </button>
+    </section>
+  );
+}
+
+function NetworkPanel() {
+  const [busy, setBusy] = useState(false);
+  const [ok, setOk] = useState("");
+  const [error, setError] = useState("");
+
+  async function optimize() {
+    setBusy(true);
+    setOk("");
+    setError("");
+    try {
+      const n = await apiOptimizeNetwork(false);
+      setOk(`Đã đặt DNS Google và tối ưu ${n} card mạng.`);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div>
+        <p className="panel-title">Mạng</p>
+        <p className="hint">
+          App tự đặt DNS Google (8.8.8.8 · 8.8.4.4) và tối ưu độ trễ mạng cho máy. Trong lúc boost, Windows chạy chế
+          độ nguồn High performance, macOS tắt delayed ACK; tắt boost thì trả lại như cũ.
+        </p>
+      </div>
+      {ok ? <p className="ok">{ok}</p> : null}
+      {error ? <p className="error">{error}</p> : null}
+      <button type="button" className="btn ghost sm" onClick={optimize} disabled={busy}>
+        {busy ? "Đang tối ưu…" : "Tối ưu lại"}
       </button>
     </section>
   );

@@ -35,8 +35,9 @@ export const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex")
 const normalizeHash = (h) => (h.startsWith("$2y$") ? "$2b$" + h.slice(4) : h);
 
 // Compared against when the account does not exist, so a miss costs as long as a wrong password
-// and response time does not reveal which usernames are registered.
-const DUMMY_HASH = bcrypt.hashSync("goslynk-dummy-password", 10);
+// and response time does not reveal which usernames are registered. Same cost as real hashes, or
+// the timing difference gives it away anyway.
+const DUMMY_HASH = bcrypt.hashSync("goslynk-dummy-password", config.bcryptCost);
 
 export const hashPassword = (pw) => bcrypt.hash(pw, config.bcryptCost);
 

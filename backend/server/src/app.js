@@ -474,7 +474,7 @@ export function createApp() {
   admin.get("/users", async (req, res) => {
     const q = String(req.query.q ?? "").trim();
     const role = String(req.query.role ?? "");
-    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const page = Math.min(100000, Math.max(1, Number.parseInt(req.query.page, 10) || 1));
     const per = 50;
 
     const where = [];

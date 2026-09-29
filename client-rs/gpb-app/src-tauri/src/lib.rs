@@ -7,6 +7,7 @@
 #[cfg(target_os = "macos")]
 mod helper;
 mod hwid;
+mod netopt;
 mod profiles;
 mod tunnel;
 
@@ -21,6 +22,8 @@ const MAX_BOOSTED: usize = 3;
 
 #[cfg(target_os = "macos")]
 pub use helper::{run as run_tunnel_helper, HELPER_FLAG};
+#[cfg(target_os = "macos")]
+pub use netopt::{run_cli as run_optimize_network, OPTIMIZE_FLAG};
 
 /// `{"endpoint": "...", "psk": "..."}` from `src-tauri/relay.local.json` at build time, or `{}`.
 const BUILD_RELAY_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/default_relay.json"));
@@ -111,6 +114,32 @@ fn default_relay() -> RelayDefaults {
 #[tauri::command]
 fn get_hwid() -> Result<String, String> {
     hwid::machine_hash()
+}
+
+/// Google DNS and latency tuning (see `netopt`); returns how many adapters got it, or `None`
+/// when skipped. `auto` is the silent run after sign-in: Windows repeats it on every start, since
+/// it costs nothing there, while macOS asks for the password only once per machine.
+#[tauri::command]
+async fn optimize_network(app: AppHandle, auto: bool) -> Result<Option<usize>, String> {
+    let marker = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("App data dir: {e}"))?
+        .join("net-optimized-v1");
+    let once = cfg!(target_os = "macos");
+    if auto && once && marker.exists() {
+        return Ok(None);
+    }
+    let result = tauri::async_runtime::spawn_blocking(netopt::apply)
+        .await
+        .map_err(|e| e.to_string())?;
+    if once {
+        if let Some(dir) = marker.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&marker, "");
+    }
+    result.map(Some)
 }
 
 #[tauri::command]
@@ -274,6 +303,7 @@ pub fn run() {
             get_status,
             default_relay,
             get_hwid,
+            optimize_network,
             profiles::list_games,
         ])
         .run(tauri::generate_context!())
